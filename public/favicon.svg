@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Opt DZ">
+  <rect width="32" height="32" rx="7" fill="#4f46c4"/>
+  <!-- Optical mark: two lenses joined by a bridge, drawn in the app's light foreground -->
+  <g fill="none" stroke="#eef0fb" stroke-width="2.1" stroke-linecap="round">
+    <circle cx="10.5" cy="18" r="4.4"/>
+    <circle cx="21.5" cy="18" r="4.4"/>
+    <path d="M14.9 17.2c.7-.7 1.5-.7 2.2 0"/>
+    <path d="M6.1 18 4 14.5M25.9 18 28 14.5"/>
+  </g>
+</svg>
