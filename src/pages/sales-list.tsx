@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Plus, X } from "lucide-react";
+import { Plus, X, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -108,11 +108,18 @@ export default function SalesListPage() {
             </Button>
           )}
         </div>
-        <Button asChild>
-          <Link to="/sales/new">
-            <Plus className="size-4" /> {t("sales.newSale")}
-          </Link>
-        </Button>
+        <div className="flex gap-2">
+          <Button asChild>
+            <Link to="/pos">
+              <Zap className="size-4" /> {t("nav.pos")}
+            </Link>
+          </Button>
+          <Button asChild variant="outline">
+            <Link to="/sales/new">
+              <Plus className="size-4" /> {t("sales.newSale")}
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <Card className="p-0">
@@ -166,7 +173,7 @@ export default function SalesListPage() {
                 >
                   <TableCell className="font-medium">#{s.id}</TableCell>
                   <TableCell>{formatDate(s.sale_date)}</TableCell>
-                  <TableCell>{s.patient_name}</TableCell>
+                  <TableCell>{s.patient_name ?? t("sales.walkIn")}</TableCell>
                   <TableCell className="text-right">
                     {formatDZD(s.total, symbol)}
                   </TableCell>

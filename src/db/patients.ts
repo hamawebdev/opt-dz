@@ -1,5 +1,6 @@
-import { getDb } from "@/lib/db";
-import { getSettings, saveSettings } from "@/db/settings";
+import { getDb, unwrap } from "@/lib/db";
+import { commands } from "@/lib/bindings";
+import { getSettings } from "@/db/settings";
 import type { Patient } from "@/types";
 
 export interface PatientInput {
@@ -17,15 +18,15 @@ export interface PatientInput {
   notes?: string | null;
 }
 
-/** Allocates the next human-readable client code (e.g. "P-0001") and advances the
- * sequence. Single-user desktop app, so no locking is needed. */
-async function nextClientCode(): Promise<string> {
+/** Computes the next human-readable client code (e.g. "P-0001") and the value the
+ * sequence should advance to. The bump is applied inside createPatient's transaction
+ * so a failed insert never leaves a gap (audit finding F3). */
+async function computeClientCode(): Promise<{ code: string; next: number }> {
   const s = await getSettings();
   const next = Number(s.client_code_next) || 1;
   const padding = Number(s.client_code_padding) || 4;
   const code = `${s.client_code_prefix}${String(next).padStart(padding, "0")}`;
-  await saveSettings({ client_code_next: String(next + 1) });
-  return code;
+  return { code, next };
 }
 
 export interface PatientFilters {
@@ -36,13 +37,19 @@ export interface PatientFilters {
   dateTo?: string;
   /** Custom-field facets: each must match (AND across attributes, OR within values). */
   attributes?: { attribute_id: number; values: string[] }[];
+  /** Include archived (soft-deleted) patients. Defaults to false. */
+  includeArchived?: boolean;
 }
 
 /** Lists patients, optionally filtered by search text, date range and custom-field facets. */
-export async function listPatients(filters: PatientFilters = {}): Promise<Patient[]> {
+export async function listPatients(
+  filters: PatientFilters = {},
+): Promise<Patient[]> {
   const db = await getDb();
   const clauses: string[] = [];
   const params: (string | number)[] = [];
+
+  if (!filters.includeArchived) clauses.push("archived = 0");
 
   const term = filters.search?.trim();
   if (term) {
@@ -89,7 +96,10 @@ export async function listPatients(filters: PatientFilters = {}): Promise<Patien
 
 export async function getPatient(id: number): Promise<Patient | null> {
   const db = await getDb();
-  const rows = await db.select<Patient[]>("SELECT * FROM patients WHERE id = $1", [id]);
+  const rows = await db.select<Patient[]>(
+    "SELECT * FROM patients WHERE id = $1",
+    [id],
+  );
   return rows[0] ?? null;
 }
 
@@ -136,11 +146,14 @@ export async function getPatientSummary(id: number): Promise<PatientSummary> {
       outstanding: number;
     }[]
   >(
+    // total_invoiced is the patient's own portion (excludes the insurer-covered part);
+    // void invoices are excluded entirely (F4).
     `SELECT
        COUNT(s.id) AS invoice_count,
-       COALESCE(SUM(s.total + s.timbre_amount), 0) AS total_invoiced,
+       COALESCE(SUM(s.total + s.timbre_amount
+         - COALESCE((SELECT covered_amount FROM claims WHERE sale_id = s.id), 0)), 0) AS total_invoiced,
        COALESCE(SUM(s.balance), 0) AS outstanding
-     FROM sales s WHERE s.patient_id = $1`,
+     FROM sales s WHERE s.patient_id = $1 AND s.status <> 'void'`,
     [id],
   );
   const pay = await db.select<{ last_payment_date: string | null }[]>(
@@ -158,7 +171,11 @@ export async function getPatientSummary(id: number): Promise<PatientSummary> {
   };
 }
 
-export type StatementEntryType = "invoice" | "payment" | "insurance" | "credit_note";
+export type StatementEntryType =
+  | "invoice"
+  | "payment"
+  | "insurance"
+  | "credit_note";
 
 export interface StatementEntry {
   date: string;
@@ -201,7 +218,7 @@ export async function getPatientStatement(
     { date: string; ref: string | null; amount: number }[]
   >(
     `SELECT sale_date AS date, invoice_number AS ref, (total + timbre_amount) AS amount
-     FROM sales WHERE patient_id = $1${inRange("sale_date", sp)}`,
+     FROM sales WHERE patient_id = $1 AND status <> 'void'${inRange("sale_date", sp)}`,
     sp,
   );
   const pp: unknown[] = [id];
@@ -223,17 +240,43 @@ export async function getPatientStatement(
     cp,
   );
   const np: unknown[] = [id];
+  // Only 'balance' credit notes reduce what the patient owes; a cash 'refund' returns
+  // money and is neutral to the account balance (F4).
   const notes = await db.select<{ date: string; amount: number }[]>(
     `SELECT created_at AS date, total AS amount
-     FROM credit_notes WHERE patient_id = $1${inRange("created_at", np)}`,
+     FROM credit_notes WHERE patient_id = $1 AND method = 'balance'${inRange("created_at", np)}`,
     np,
   );
 
   const rows: Omit<StatementEntry, "balance">[] = [
-    ...sales.map((r) => ({ date: r.date, type: "invoice" as const, ref: r.ref, debit: r.amount, credit: 0 })),
-    ...payments.map((r) => ({ date: r.date, type: "payment" as const, ref: r.ref, debit: 0, credit: r.amount })),
-    ...claims.map((r) => ({ date: r.date, type: "insurance" as const, ref: r.ref, debit: 0, credit: r.amount })),
-    ...notes.map((r) => ({ date: r.date, type: "credit_note" as const, ref: null, debit: 0, credit: r.amount })),
+    ...sales.map((r) => ({
+      date: r.date,
+      type: "invoice" as const,
+      ref: r.ref,
+      debit: r.amount,
+      credit: 0,
+    })),
+    ...payments.map((r) => ({
+      date: r.date,
+      type: "payment" as const,
+      ref: r.ref,
+      debit: 0,
+      credit: r.amount,
+    })),
+    ...claims.map((r) => ({
+      date: r.date,
+      type: "insurance" as const,
+      ref: r.ref,
+      debit: 0,
+      credit: r.amount,
+    })),
+    ...notes.map((r) => ({
+      date: r.date,
+      type: "credit_note" as const,
+      ref: null,
+      debit: 0,
+      credit: r.amount,
+    })),
   ];
   rows.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
 
@@ -251,32 +294,49 @@ export async function getPatientStatement(
 
 export async function createPatient(input: PatientInput): Promise<number> {
   const db = await getDb();
-  const code = await nextClientCode();
-  const res = await db.execute(
-    `INSERT INTO patients
-       (code, full_name, phone, phone2, email, address, date_of_birth, national_id,
-        default_payer_id, default_coverage_pct, insurance_policy_no, photo, notes)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-    [
-      code,
-      input.full_name,
-      input.phone ?? null,
-      input.phone2 ?? null,
-      input.email ?? null,
-      input.address ?? null,
-      input.date_of_birth ?? null,
-      input.national_id ?? null,
-      input.default_payer_id ?? null,
-      input.default_coverage_pct ?? 0,
-      input.insurance_policy_no ?? null,
-      input.photo ?? null,
-      input.notes ?? null,
-    ],
-  );
-  return res.lastInsertId ?? 0;
+  const { code, next } = await computeClientCode();
+  await db.execute("BEGIN");
+  try {
+    // Advance the code sequence and insert atomically — a failed insert rolls back
+    // the bump, so codes never gap (F3).
+    await db.execute(
+      `INSERT INTO settings (key, value) VALUES ('client_code_next', $1)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      [String(next + 1)],
+    );
+    const res = await db.execute(
+      `INSERT INTO patients
+         (code, full_name, phone, phone2, email, address, date_of_birth, national_id,
+          default_payer_id, default_coverage_pct, insurance_policy_no, photo, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+      [
+        code,
+        input.full_name,
+        input.phone ?? null,
+        input.phone2 ?? null,
+        input.email ?? null,
+        input.address ?? null,
+        input.date_of_birth ?? null,
+        input.national_id ?? null,
+        input.default_payer_id ?? null,
+        input.default_coverage_pct ?? 0,
+        input.insurance_policy_no ?? null,
+        input.photo ?? null,
+        input.notes ?? null,
+      ],
+    );
+    await db.execute("COMMIT");
+    return res.lastInsertId ?? 0;
+  } catch (err) {
+    await db.execute("ROLLBACK");
+    throw err;
+  }
 }
 
-export async function updatePatient(id: number, input: PatientInput): Promise<void> {
+export async function updatePatient(
+  id: number,
+  input: PatientInput,
+): Promise<void> {
   const db = await getDb();
   await db.execute(
     `UPDATE patients
@@ -302,7 +362,47 @@ export async function updatePatient(id: number, input: PatientInput): Promise<vo
   );
 }
 
+/** Soft-delete: hide a patient from lists while preserving their clinical and billing
+ * history (never cascade-delete prescriptions/jobs — audit finding F2). */
+export async function archivePatient(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE patients SET archived = 1, updated_at = datetime('now') WHERE id = $1",
+    [id],
+  );
+}
+
+export async function unarchivePatient(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE patients SET archived = 0, updated_at = datetime('now') WHERE id = $1",
+    [id],
+  );
+}
+
+/** Hard-delete, allowed only when the patient has no clinical or billing history;
+ * anything with history must be archived so records survive. */
 export async function deletePatient(id: number): Promise<void> {
   const db = await getDb();
+  const rows = await db.select<{ n: number }[]>(
+    `SELECT (SELECT COUNT(*) FROM sales         WHERE patient_id = $1)
+          + (SELECT COUNT(*) FROM prescriptions WHERE patient_id = $1)
+          + (SELECT COUNT(*) FROM jobs          WHERE patient_id = $1)
+          + (SELECT COUNT(*) FROM appointments  WHERE patient_id = $1)
+          + (SELECT COUNT(*) FROM credit_notes  WHERE patient_id = $1) AS n`,
+    [id],
+  );
+  if ((rows[0]?.n ?? 0) > 0) {
+    throw new Error("PATIENT_HAS_HISTORY");
+  }
   await db.execute("DELETE FROM patients WHERE id = $1", [id]);
+}
+
+/** Merges a duplicate patient into a surviving one via the Rust `merge_patients`
+ * command (re-points all records, then removes the duplicate). */
+export async function mergePatients(
+  keepId: number,
+  dupId: number,
+): Promise<void> {
+  unwrap(await commands.mergePatients(keepId, dupId));
 }

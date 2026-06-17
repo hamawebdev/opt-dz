@@ -11,7 +11,10 @@ import {
 } from "@/db/reports";
 
 export function useDashboardStats() {
-  return useQuery({ queryKey: ["dashboard", "stats"], queryFn: getDashboardStats });
+  return useQuery({
+    queryKey: ["dashboard", "stats"],
+    queryFn: getDashboardStats,
+  });
 }
 
 export function useRevenueByDay(days = 14) {

@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Plus, Minus, Trash2, PackageSearch, CheckCircle2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Plus,
+  Minus,
+  Trash2,
+  PackageSearch,
+  CheckCircle2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { notifyError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
@@ -45,7 +52,13 @@ import { useCreateSale } from "@/hooks/use-sales";
 import { usePayers } from "@/hooks/use-payers";
 import { useSettings } from "@/hooks/use-settings";
 import { computeTotals, type SaleItemInput } from "@/db/sales";
-import { formatDZD, formatDate, toCentimes, fromCentimes } from "@/lib/format";
+import {
+  formatDZD,
+  formatDate,
+  toCentimes,
+  fromCentimes,
+  todayISO,
+} from "@/lib/format";
 import { taxConfig, extractTva, computeTimbre } from "@/lib/tax";
 import type { DiscountType } from "@/types";
 
@@ -61,7 +74,7 @@ interface Line {
   item_discount: string;
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayISO();
 const n = (s: string) => {
   const v = Number(s);
   return Number.isFinite(v) ? v : 0;
@@ -241,7 +254,8 @@ export default function SaleFormPage() {
       return;
     }
     const product = products?.find(
-      (p) => (p.barcode && p.barcode === c) || (p.reference && p.reference === c),
+      (p) =>
+        (p.barcode && p.barcode === c) || (p.reference && p.reference === c),
     );
     if (!product) {
       toast.error(t("sales.noProductBarcode", { code: c }));

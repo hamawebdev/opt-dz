@@ -1,5 +1,9 @@
 import { getDb } from "@/lib/db";
-import type { Supplier, SupplierLedgerEntry, SupplierLedgerType } from "@/types";
+import type {
+  Supplier,
+  SupplierLedgerEntry,
+  SupplierLedgerType,
+} from "@/types";
 
 export interface SupplierInput {
   name: string;
@@ -9,7 +13,9 @@ export interface SupplierInput {
   notes?: string | null;
 }
 
-export async function listSuppliers(includeArchived = false): Promise<Supplier[]> {
+export async function listSuppliers(
+  includeArchived = false,
+): Promise<Supplier[]> {
   const db = await getDb();
   const where = includeArchived ? "" : "WHERE archived = 0";
   return db.select<Supplier[]>(
@@ -114,7 +120,13 @@ export async function addLedgerEntry(args: {
   await db.execute(
     `INSERT INTO supplier_ledger (supplier_id, type, amount, note, ref)
      VALUES ($1, $2, $3, $4, $5)`,
-    [args.supplierId, args.type, args.amount, args.note ?? null, args.ref ?? null],
+    [
+      args.supplierId,
+      args.type,
+      args.amount,
+      args.note ?? null,
+      args.ref ?? null,
+    ],
   );
 }
 

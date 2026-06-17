@@ -1,7 +1,13 @@
 import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Download, Upload, CheckCircle2, AlertCircle } from "lucide-react";
+import {
+  ArrowLeft,
+  Download,
+  Upload,
+  CheckCircle2,
+  AlertCircle,
+} from "lucide-react";
 import { toast } from "sonner";
 import { notifyError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
@@ -112,14 +118,20 @@ export default function PatientsImportPage() {
       };
       const errors: string[] = [];
       if (!input.full_name) errors.push(t("validation.nameRequired"));
-      if (!isPhone(input.phone ?? "")) errors.push(t("validation.invalidPhone"));
-      if (!isPhone(input.phone2 ?? "")) errors.push(t("validation.invalidPhone"));
-      if (!isEmail(input.email ?? "")) errors.push(t("validation.invalidEmail"));
+      if (!isPhone(input.phone ?? ""))
+        errors.push(t("validation.invalidPhone"));
+      if (!isPhone(input.phone2 ?? ""))
+        errors.push(t("validation.invalidPhone"));
+      if (!isEmail(input.email ?? ""))
+        errors.push(t("validation.invalidEmail"));
       if (!isNin(input.national_id ?? ""))
         errors.push(t("validation.invalidNationalId"));
       const dups = errors.length
         ? []
-        : await findPatientDuplicates(input.phone ?? null, input.national_id ?? null);
+        : await findPatientDuplicates(
+            input.phone ?? null,
+            input.national_id ?? null,
+          );
       preview.push({ input, errors, duplicate: dups.length > 0 });
     }
     setRows(preview);
@@ -236,7 +248,8 @@ export default function PatientsImportPage() {
                       </Badge>
                     ) : (
                       <span className="flex items-center gap-1 text-xs text-green-600">
-                        <CheckCircle2 className="size-3.5" /> {t("import.ready")}
+                        <CheckCircle2 className="size-3.5" />{" "}
+                        {t("import.ready")}
                       </span>
                     )}
                   </TableCell>

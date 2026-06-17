@@ -1,7 +1,6 @@
 import { getDb } from "@/lib/db";
 import { listProductsWithExpiry } from "@/db/products";
 import { expiryStatus } from "@/lib/expiry";
-import type { Product } from "@/types";
 
 export type NotificationKind =
   | "out_of_stock"
@@ -30,8 +29,21 @@ export async function listNotifications(
   const db = await getDb();
   const out: AppNotification[] = [];
 
-  const stock = await db.select<Product[]>(
-    "SELECT * FROM products WHERE item_type = 'product' AND quantity <= min_stock ORDER BY quantity ASC, name COLLATE NOCASE",
+  // Low/out stock, variant-aware: simple products use their own on-hand; variant
+  // products surface their lowest variant stock. Services and archived are excluded.
+  const stock = await db.select<{ id: number; name: string; quantity: number }[]>(
+    `SELECT p.id AS id, p.name AS name, p.quantity AS quantity
+       FROM products p
+       WHERE p.item_type = 'product' AND p.archived = 0
+         AND NOT EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = p.id AND v.archived = 0)
+         AND p.quantity <= p.min_stock
+     UNION ALL
+     SELECT p.id AS id, p.name AS name, MIN(v.quantity) AS quantity
+       FROM product_variants v JOIN products p ON p.id = v.product_id
+       WHERE p.item_type = 'product' AND p.archived = 0 AND v.archived = 0
+         AND v.quantity <= v.min_stock
+       GROUP BY p.id, p.name
+     ORDER BY quantity ASC, name COLLATE NOCASE`,
   );
   for (const p of stock) {
     if (p.quantity <= 0) {

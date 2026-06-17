@@ -73,7 +73,8 @@ export function renderBarcode(
       text: opts.value,
       scale: opts.scale ?? 3,
       height: opts.format === "qrcode" ? undefined : (opts.height ?? 12),
-      includetext: opts.format === "qrcode" ? false : (opts.includeText ?? true),
+      includetext:
+        opts.format === "qrcode" ? false : (opts.includeText ?? true),
       textxalign: "center",
     });
     return true;

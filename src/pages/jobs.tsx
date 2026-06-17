@@ -27,12 +27,22 @@ import {
 } from "@/components/ui/table";
 import { PromptDialog } from "@/components/prompt-dialog";
 import { JobStatusPill } from "@/components/status-pill";
-import { useJobs, useUpdateJobStatus, useUpdateJobDetails } from "@/hooks/use-jobs";
+import {
+  useJobs,
+  useUpdateJobStatus,
+  useUpdateJobDetails,
+} from "@/hooks/use-jobs";
 import { formatDate } from "@/lib/format";
 import { notifyError } from "@/lib/errors";
 import type { JobStatus } from "@/types";
 
-const JOB_STATUSES: JobStatus[] = ["ordered", "at_lab", "edging", "ready", "collected"];
+const JOB_STATUSES: JobStatus[] = [
+  "ordered",
+  "at_lab",
+  "edging",
+  "ready",
+  "collected",
+];
 
 interface EditingJob {
   id: number;
@@ -87,7 +97,10 @@ export default function JobsPage() {
           <CardTitle>{t("jobs.title")}</CardTitle>
           <CardDescription>{t("jobs.description")}</CardDescription>
         </div>
-        <Select value={filter} onValueChange={(v) => setFilter(v as typeof filter)}>
+        <Select
+          value={filter}
+          onValueChange={(v) => setFilter(v as typeof filter)}
+        >
           <SelectTrigger className="w-40">
             <SelectValue />
           </SelectTrigger>
@@ -104,7 +117,9 @@ export default function JobsPage() {
       </CardHeader>
       <CardContent>
         {!jobs?.length ? (
-          <p className="text-muted-foreground py-6 text-center text-sm">{t("jobs.noJobs")}</p>
+          <p className="text-muted-foreground py-6 text-center text-sm">
+            {t("jobs.noJobs")}
+          </p>
         ) : (
           <Table>
             <TableHeader>
@@ -114,20 +129,28 @@ export default function JobsPage() {
                 <TableHead>{t("jobs.lab")}</TableHead>
                 <TableHead>{t("jobs.expected")}</TableHead>
                 <TableHead>{t("common.status")}</TableHead>
-                <TableHead className="text-right">{t("common.actions")}</TableHead>
+                <TableHead className="text-right">
+                  {t("common.actions")}
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {jobs.map((j) => (
                 <TableRow key={j.id}>
                   <TableCell className="font-medium">
-                    <Link to={`/patients/${j.patient_id}`} className="hover:underline">
+                    <Link
+                      to={`/patients/${j.patient_id}`}
+                      className="hover:underline"
+                    >
                       {j.patient_name}
                     </Link>
                   </TableCell>
                   <TableCell>
                     {j.sale_id ? (
-                      <Link to={`/sales/${j.sale_id}`} className="hover:underline">
+                      <Link
+                        to={`/sales/${j.sale_id}`}
+                        className="hover:underline"
+                      >
                         {j.invoice_number ?? `#${j.sale_id}`}
                       </Link>
                     ) : (
@@ -135,13 +158,18 @@ export default function JobsPage() {
                     )}
                   </TableCell>
                   <TableCell>{j.lab ?? "—"}</TableCell>
-                  <TableCell>{j.expected_ready ? formatDate(j.expected_ready) : "—"}</TableCell>
+                  <TableCell>
+                    {j.expected_ready ? formatDate(j.expected_ready) : "—"}
+                  </TableCell>
                   <TableCell>
                     <JobStatusPill status={j.status} />
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-2">
-                      <Select value={j.status} onValueChange={(v) => advance(j.id, v as JobStatus)}>
+                      <Select
+                        value={j.status}
+                        onValueChange={(v) => advance(j.id, v as JobStatus)}
+                      >
                         <SelectTrigger className="h-10 w-32">
                           <SelectValue />
                         </SelectTrigger>
@@ -183,7 +211,11 @@ export default function JobsPage() {
         confirmText={t("common.save")}
         fields={[
           { name: "lab", label: t("dlg.labName"), placeholder: t("jobs.lab") },
-          { name: "expected_ready", label: t("dlg.expectedReady"), type: "date" },
+          {
+            name: "expected_ready",
+            label: t("dlg.expectedReady"),
+            type: "date",
+          },
         ]}
         initial={{
           lab: editing?.lab ?? "",

@@ -96,7 +96,9 @@ export function ColorPicker({
                   setOpen(false);
                 }}
               >
-                <span className="text-muted-foreground">{t("common.none")}</span>
+                <span className="text-muted-foreground">
+                  {t("common.none")}
+                </span>
               </CommandItem>
             )}
             <CommandGroup>

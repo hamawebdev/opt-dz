@@ -89,7 +89,9 @@ export function Onboarding() {
                     <Languages className="text-muted-foreground size-5" />
                     {LANG_LABEL[lng]}
                   </span>
-                  {language === lng && <Check className="text-primary size-5" />}
+                  {language === lng && (
+                    <Check className="text-primary size-5" />
+                  )}
                 </button>
               ))}
             </div>

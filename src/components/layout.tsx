@@ -1,5 +1,7 @@
+import { useEffect } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { runAutoBackupIfDue } from "@/lib/auto-backup";
 import { AppSidebar } from "@/components/app-sidebar";
 import {
   SidebarInset,
@@ -19,6 +21,7 @@ const SEGMENT_TO_NAV_KEY: Record<string, string> = {
   suppliers: "nav.suppliers",
   notifications: "nav.notifications",
   sales: "nav.sales",
+  pos: "nav.pos",
   jobs: "nav.jobs",
   insurance: "nav.insurance",
   reports: "nav.reports",
@@ -37,6 +40,11 @@ function usePageTitle(): string {
 
 export default function Layout() {
   const title = usePageTitle();
+
+  // Run a scheduled database backup once per app session if one is due.
+  useEffect(() => {
+    void runAutoBackupIfDue();
+  }, []);
 
   return (
     <SidebarProvider>

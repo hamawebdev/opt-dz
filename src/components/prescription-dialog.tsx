@@ -3,6 +3,14 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { notifyError } from "@/lib/errors";
 import {
+  isSphere,
+  isCylinder,
+  isAxis,
+  isAddition,
+  isPd,
+  isBaseDir,
+} from "@/lib/validators";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -45,7 +53,15 @@ function num(value: string): number | null {
 
 type EyeKey = "r" | "l";
 // Numeric per-eye fields shown in the main grid.
-const numFields = ["sphere", "cylinder", "axis", "add", "pd", "prism", "seg"] as const;
+const numFields = [
+  "sphere",
+  "cylinder",
+  "axis",
+  "add",
+  "pd",
+  "prism",
+  "seg",
+] as const;
 type NumField = (typeof numFields)[number];
 const numLabels: Record<NumField, string> = {
   sphere: "SPH",
@@ -102,6 +118,18 @@ export function PrescriptionDialog({
   }
 
   async function handleSave() {
+    // Optical sanity check before anything reaches the lab (audit finding G1).
+    const eyeValid = (s: EyeState) =>
+      isSphere(s.sphere) &&
+      isCylinder(s.cylinder) &&
+      isAxis(s.axis) &&
+      isAddition(s.add) &&
+      isPd(s.pd) &&
+      isBaseDir(s.base);
+    if (!eyeValid(right) || !eyeValid(left)) {
+      toast.error(t("prescription.invalidValues"));
+      return;
+    }
     try {
       const newId = await create.mutateAsync({
         patient_id: patientId,
@@ -139,7 +167,9 @@ export function PrescriptionDialog({
   function renderEyeRow(label: string, eye: EyeKey, state: EyeState) {
     return (
       <div className="grid grid-cols-[2rem_repeat(7,1fr)_3rem] items-center gap-1.5">
-        <span className="text-muted-foreground text-sm font-semibold">{label}</span>
+        <span className="text-muted-foreground text-sm font-semibold">
+          {label}
+        </span>
         {numFields.map((f) => (
           <Input
             key={f}
@@ -175,7 +205,12 @@ export function PrescriptionDialog({
           <div className="flex flex-wrap gap-4">
             <div className="grid w-44 gap-1.5">
               <Label htmlFor="exam_date">{t("prescription.examDate")}</Label>
-              <Input id="exam_date" type="date" value={examDate} onChange={(e) => setExamDate(e.target.value)} />
+              <Input
+                id="exam_date"
+                type="date"
+                value={examDate}
+                onChange={(e) => setExamDate(e.target.value)}
+              />
             </div>
             <div className="grid w-48 gap-1.5">
               <Label htmlFor="lens_type">{t("prescription.lensType")}</Label>
@@ -185,15 +220,26 @@ export function PrescriptionDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">—</SelectItem>
-                  <SelectItem value="single-vision">{t("prescription.singleVision")}</SelectItem>
-                  <SelectItem value="bifocal">{t("prescription.bifocal")}</SelectItem>
-                  <SelectItem value="progressive">{t("prescription.progressive")}</SelectItem>
+                  <SelectItem value="single-vision">
+                    {t("prescription.singleVision")}
+                  </SelectItem>
+                  <SelectItem value="bifocal">
+                    {t("prescription.bifocal")}
+                  </SelectItem>
+                  <SelectItem value="progressive">
+                    {t("prescription.progressive")}
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div className="grid w-40 gap-1.5">
               <Label htmlFor="rx_expiry">{t("prescription.expiryDate")}</Label>
-              <Input id="rx_expiry" type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} />
+              <Input
+                id="rx_expiry"
+                type="date"
+                value={expiry}
+                onChange={(e) => setExpiry(e.target.value)}
+              />
             </div>
           </div>
 
@@ -201,19 +247,28 @@ export function PrescriptionDialog({
             <div className="grid grid-cols-[2rem_repeat(7,1fr)_3rem] gap-1.5">
               <span />
               {numFields.map((f) => (
-                <span key={f} className="text-muted-foreground text-center text-xs font-medium">
+                <span
+                  key={f}
+                  className="text-muted-foreground text-center text-xs font-medium"
+                >
                   {numLabels[f]}
                 </span>
               ))}
-              <span className="text-muted-foreground text-center text-xs font-medium">BASE</span>
+              <span className="text-muted-foreground text-center text-xs font-medium">
+                BASE
+              </span>
             </div>
             {renderEyeRow("OD", "r", right)}
             {renderEyeRow("OS", "l", left)}
-            <p className="text-muted-foreground text-xs">{t("prescription.legend")}</p>
+            <p className="text-muted-foreground text-xs">
+              {t("prescription.legend")}
+            </p>
           </div>
 
           <div className="grid gap-1.5">
-            <Label htmlFor="rx_prescriber">{t("prescription.prescriber")}</Label>
+            <Label htmlFor="rx_prescriber">
+              {t("prescription.prescriber")}
+            </Label>
             <Input
               id="rx_prescriber"
               value={prescriber}

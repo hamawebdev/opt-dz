@@ -40,12 +40,19 @@ export interface ProductFilters {
   availability?: "all" | "in" | "low" | "out";
   /** EAV facet filters (see Feature 5). All must match (AND). */
   attributes?: AttributeFilter[];
+  /** Include archived (soft-deleted) products. Defaults to false. */
+  includeArchived?: boolean;
 }
 
-export async function listProducts(filters: ProductFilters = {}): Promise<Product[]> {
+export async function listProducts(
+  filters: ProductFilters = {},
+): Promise<Product[]> {
   const db = await getDb();
   const where: string[] = [];
   const params: unknown[] = [];
+
+  // Hide archived products unless explicitly requested.
+  if (!filters.includeArchived) where.push("archived = 0");
 
   if (filters.search?.trim()) {
     params.push(`%${filters.search.trim()}%`);
@@ -116,7 +123,10 @@ export async function listProducts(filters: ProductFilters = {}): Promise<Produc
 
 export async function getProduct(id: number): Promise<Product | null> {
   const db = await getDb();
-  const rows = await db.select<Product[]>("SELECT * FROM products WHERE id = $1", [id]);
+  const rows = await db.select<Product[]>(
+    "SELECT * FROM products WHERE id = $1",
+    [id],
+  );
   return rows[0] ?? null;
 }
 
@@ -134,16 +144,17 @@ export async function listProductsWithExpiry(): Promise<Product[]> {
   const db = await getDb();
   return db.select<Product[]>(
     `SELECT * FROM products
-     WHERE item_type = 'product' AND expiry_date IS NOT NULL AND expiry_date <> ''
+     WHERE item_type = 'product' AND archived = 0
+       AND expiry_date IS NOT NULL AND expiry_date <> ''
      ORDER BY expiry_date ASC`,
   );
 }
 
-/** Stocked products at or below their minimum stock threshold (services excluded). */
+/** Stocked products at or below their minimum stock threshold (services + archived excluded). */
 export async function listLowStock(): Promise<Product[]> {
   const db = await getDb();
   return db.select<Product[]>(
-    "SELECT * FROM products WHERE item_type = 'product' AND quantity <= min_stock ORDER BY quantity ASC, name COLLATE NOCASE",
+    "SELECT * FROM products WHERE item_type = 'product' AND archived = 0 AND quantity <= min_stock ORDER BY quantity ASC, name COLLATE NOCASE",
   );
 }
 
@@ -185,17 +196,23 @@ export async function createProduct(input: ProductInput): Promise<number> {
   return res.lastInsertId ?? 0;
 }
 
-export async function updateProduct(id: number, input: ProductInput): Promise<void> {
+export async function updateProduct(
+  id: number,
+  input: ProductInput,
+): Promise<void> {
   const db = await getDb();
   const isService = input.item_type === "service";
+  // NOTE: `quantity` is intentionally NOT updated here — on-hand stock is owned by the
+  // movement ledger (deliveries/adjustments/sales), never blind-written from the form
+  // (audit finding A5). Only the min-stock threshold and descriptive fields are edited.
   await db.execute(
     `UPDATE products
      SET category = $1, item_type = $2, name = $3, brand = $4, reference = $5,
          barcode = $6, expiry_date = $7, purchase_price = $8, selling_price = $9,
-         quantity = $10, min_stock = $11, supplier = $12,
-         category_id = $13, brand_id = $14, supplier_id = $15, color_id = $16,
+         min_stock = $10, supplier = $11,
+         category_id = $12, brand_id = $13, supplier_id = $14, color_id = $15,
          updated_at = datetime('now')
-     WHERE id = $17`,
+     WHERE id = $16`,
     [
       input.category,
       input.item_type,
@@ -206,7 +223,6 @@ export async function updateProduct(id: number, input: ProductInput): Promise<vo
       isService ? null : (input.expiry_date ?? null),
       input.purchase_price,
       input.selling_price,
-      isService ? 0 : input.quantity,
       isService ? 0 : input.min_stock,
       input.supplier ?? null,
       input.category_id ?? null,
@@ -218,7 +234,36 @@ export async function updateProduct(id: number, input: ProductInput): Promise<vo
   );
 }
 
+/** Soft-delete: hide a discontinued product from catalogs/POS while preserving its
+ * stock-movement history and sales links (audit finding C3). */
+export async function archiveProduct(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE products SET archived = 1, updated_at = datetime('now') WHERE id = $1",
+    [id],
+  );
+}
+
+export async function unarchiveProduct(id: number): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE products SET archived = 0, updated_at = datetime('now') WHERE id = $1",
+    [id],
+  );
+}
+
+/** Hard-delete, allowed only for a product with no history (no movements, sale lines or
+ * variants). Anything with history must be archived so its records survive. */
 export async function deleteProduct(id: number): Promise<void> {
   const db = await getDb();
+  const rows = await db.select<{ n: number }[]>(
+    `SELECT (SELECT COUNT(*) FROM stock_movements WHERE product_id = $1)
+          + (SELECT COUNT(*) FROM sale_items     WHERE product_id = $1)
+          + (SELECT COUNT(*) FROM product_variants WHERE product_id = $1) AS n`,
+    [id],
+  );
+  if ((rows[0]?.n ?? 0) > 0) {
+    throw new Error("PRODUCT_HAS_HISTORY");
+  }
   await db.execute("DELETE FROM products WHERE id = $1", [id]);
 }

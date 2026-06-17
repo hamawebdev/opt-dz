@@ -41,7 +41,10 @@ export function useFilterableAttributes() {
 }
 
 export function useAllAttributeTargets() {
-  return useQuery({ queryKey: ["all-attribute-targets"], queryFn: listAllTargets });
+  return useQuery({
+    queryKey: ["all-attribute-targets"],
+    queryFn: listAllTargets,
+  });
 }
 
 export function useAttributeTargets(attributeId: number | undefined) {

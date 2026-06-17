@@ -80,7 +80,8 @@
     "tracking": "Tracking",
     "notifications": "Notifications",
     "daily": "Daily",
-    "manage": "Manage"
+    "manage": "Manage",
+    "pos": "Quick Sale"
   },
   "quick": {
     "title": "What do you want to do?",
@@ -167,7 +168,8 @@
   "saleStatus": {
     "paid": "Paid",
     "partial": "Partial",
-    "unpaid": "Unpaid"
+    "unpaid": "Unpaid",
+    "void": "Voided"
   },
   "jobStatus": {
     "ordered": "Ordered",
@@ -192,6 +194,39 @@
   "returnMethod": {
     "refund": "Refund"
   },
+  "auth": {
+    "managerPin": "Manager PIN",
+    "wrongPin": "Incorrect manager PIN"
+  },
+  "staff": {
+    "title": "Staff & security",
+    "desc": "Who is at the till, the manager PIN for sensitive actions, automatic backups, and the activity log.",
+    "current": "Who is at the till",
+    "addName": "New staff name",
+    "role": "Role",
+    "add": "Add",
+    "added": "Staff member added",
+    "managerPin": "Manager PIN",
+    "pinOn": "On",
+    "pinOff": "Off",
+    "pinPlaceholder": "New PIN (leave empty to remove)",
+    "pinHint": "Required to void invoices and other sensitive actions. Leave empty and save to remove it.",
+    "pinSet": "Manager PIN updated",
+    "pinCleared": "Manager PIN removed",
+    "autoBackup": "Automatic backups",
+    "backupInterval": "Every (days)",
+    "backupHint": "Backups are saved to the folder set in Data & backup, on app start when due.",
+    "backupSaved": "Backup settings saved",
+    "auditLog": "Recent activity",
+    "auditEmpty": "No recorded activity yet."
+  },
+  "staffRole": {
+    "owner": "Owner",
+    "optometrist": "Optometrist",
+    "optician": "Optician",
+    "cashier": "Cashier",
+    "staff": "Staff"
+  },
   "dataKind": {
     "patients": "patients",
     "products": "products",
@@ -199,6 +234,7 @@
   },
   "home": {
     "todaysSales": "Today's sales",
+    "collectedToday": "Collected: {{amount}}",
     "invoicesToday": "Invoices today",
     "lowStockItems": "Low-stock items",
     "outstandingBalance": "Outstanding balance",
@@ -229,6 +265,10 @@
     "noMatch": "No patients match your search.",
     "empty": "No patients yet. Add your first one.",
     "deleted": "Patient deleted",
+    "archived": "Patient archived",
+    "archive": "Archive",
+    "archiveTitle": "Archive patient?",
+    "archiveDesc": "They're hidden from the list, but all their prescriptions, sales and history are kept. You can restore them later.",
     "deleteError": "Could not delete: {{error}}",
     "deleteTitle": "Delete patient?",
     "deleteDesc": "This removes the patient and their prescription history. Sales linked to this patient block deletion.",
@@ -283,6 +323,7 @@
   },
   "appointments": {
     "title": "Appointments",
+    "conflictWarning": "Heads up: overlaps {{name}}'s appointment at {{time}} with the same optometrist.",
     "new": "New appointment",
     "edit": "Edit appointment",
     "none": "No appointments.",
@@ -362,6 +403,10 @@
     "low": "low",
     "recordDeliveryAria": "Record delivery",
     "productDeleted": "Product deleted",
+    "productArchived": "Product archived",
+    "archive": "Archive",
+    "archiveTitle": "Archive product?",
+    "archiveDesc": "It's hidden from the catalog and POS, but its stock history and past sales are kept. You can restore it later.",
     "couldNotDelete": "Could not delete: {{error}}",
     "deleteTitle": "Delete product?",
     "deleteDesc": "This removes the product from the catalog. Past sale lines are kept.",
@@ -457,15 +502,20 @@
     "amount": "Amount",
     "removePaymentAria": "Remove payment",
     "returnsCreditNotes": "Returns / credit notes",
-    "deleteSaleTitle": "Delete sale?",
-    "deleteSaleDesc": "This deletes the invoice and its payments, and restores item stock.",
+    "void": "Void",
+    "saleVoided": "Sale voided, stock restored",
+    "voidSaleTitle": "Void this invoice?",
+    "voidSaleDesc": "The invoice and its number are kept for the records, stock is restored, and any insurance claim is cancelled. This cannot be undone.",
+    "voidReason": "Reason (optional)",
+    "voidReasonPlaceholder": "e.g. wrong customer, entry error",
     "removePaymentTitle": "Remove payment?",
     "removePaymentDesc": "The sale balance will be recalculated.",
     "printSaveAsPdf": "Print / Save as PDF",
     "invoiceUpper": "INVOICE",
     "billedTo": "Billed to",
     "expSuffix": " · exp. {{date}}",
-    "expiredWarning": "{{name}} is expired"
+    "expiredWarning": "{{name}} is expired",
+    "walkIn": "Walk-in"
   },
   "jobs": {
     "title": "Lab jobs",
@@ -610,7 +660,8 @@
     "prescriberPlaceholder": "Dr. name (optional)",
     "notesPlaceholder": "Visit observations…",
     "savePrescription": "Save prescription",
-    "added": "Prescription added"
+    "added": "Prescription added",
+    "invalidValues": "Please check the prescription: axis must be 0–180, and powers in 0.25 steps."
   },
   "confirm": {
     "areYouSure": "Are you sure?",
@@ -636,7 +687,12 @@
     "processReturn": "Process return",
     "enterQty": "Enter a quantity to return",
     "cannotReturnMore": "Cannot return more than {{max}} of \"{{description}}\"",
-    "refundRecorded": "Refund recorded"
+    "refundRecorded": "Refund recorded",
+    "method": "How to credit",
+    "method_refund": "Cash refund",
+    "method_refund_hint": "Give the money back (up to what was paid)",
+    "method_balance": "Reduce balance",
+    "method_balance_hint": "Apply the credit to what is still owed"
   },
   "delivery": {
     "title": "Record delivery",
@@ -804,7 +860,8 @@
     "save": "Save",
     "delete": "Delete",
     "none": "No variants — this product uses its own stock.",
-    "saved": "Variant saved"
+    "saved": "Variant saved",
+    "manualCorrection": "Manual correction"
   },
   "photos": {
     "title": "Photos",
@@ -837,5 +894,57 @@
     "reviewTitle": "Colors to review",
     "reviewDesc": "These old free-text colors couldn't be matched automatically. Map each one to a color.",
     "mapTo": "Map to…"
+  },
+  "pos": {
+    "title": "Quick Sale",
+    "searchPlaceholder": "Search by name, model, reference, barcode, brand, color, supplier…",
+    "gridView": "Grid",
+    "listView": "List",
+    "allBrands": "All brands",
+    "allColors": "All colors",
+    "inStockOnly": "In stock",
+    "favorites": "Favorites",
+    "recentlySold": "Recently sold",
+    "noProducts": "No products found",
+    "add": "Add",
+    "chooseVariant": "Choose a variant",
+    "variantsCount_one": "{{count}} variant",
+    "variantsCount_other": "{{count}} variants",
+    "outOfStock": "Out of stock",
+    "lowStock": "Low stock",
+    "inStock": "In stock",
+    "cart": "Current sale",
+    "emptyCart": "Cart is empty — tap a product to add it",
+    "walkInCustomer": "Walk-in customer",
+    "addCustomer": "Add customer",
+    "changeCustomer": "Change",
+    "removeCustomer": "Remove customer",
+    "removeItem": "Remove item",
+    "hold": "Hold",
+    "resume": "Resume",
+    "clearAll": "Clear all",
+    "pay": "Pay",
+    "scan": "Scan",
+    "heldSales": "Held sales",
+    "noHeldSales": "No held sales",
+    "holdTitle": "Hold this sale",
+    "holdLabelPlaceholder": "Label (optional), e.g. blue counter",
+    "saleHeld": "Sale held",
+    "confirmClearTitle": "Clear the cart?",
+    "confirmClearDesc": "All items will be removed from the current sale.",
+    "confirmDeleteHeldTitle": "Delete held sale?",
+    "confirmDeleteHeldDesc": "This parked cart will be permanently removed.",
+    "payTitle": "Payment",
+    "amountReceived": "Amount received",
+    "change": "Change",
+    "completeSale": "Complete sale",
+    "saleCompleted": "Sale completed",
+    "newSale": "New sale",
+    "printReceipt": "Print receipt",
+    "outOfStockWarn": "{{name}} is out of stock",
+    "scanNotFound": "No product for barcode {{code}}",
+    "added": "{{name}} added",
+    "discount": "Discount",
+    "items": "items"
   }
 }

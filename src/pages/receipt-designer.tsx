@@ -167,7 +167,9 @@ function Designer({ settings }: { settings: ShopSettings }) {
                 <tr className="border-t">
                   <td className="py-1">Ray-Ban RB2140</td>
                   {cfg.show_unit_price && (
-                    <td className="py-1 text-right">{formatDZD(1200000, sym)}</td>
+                    <td className="py-1 text-right">
+                      {formatDZD(1200000, sym)}
+                    </td>
                   )}
                   {cfg.show_qty && <td className="py-1 text-right">1</td>}
                   {cfg.show_discount && (

@@ -23,7 +23,10 @@ export async function createPayer(input: PayerInput): Promise<number> {
   return res.lastInsertId ?? 0;
 }
 
-export async function updatePayer(id: number, input: PayerInput): Promise<void> {
+export async function updatePayer(
+  id: number,
+  input: PayerInput,
+): Promise<void> {
   const db = await getDb();
   await db.execute(
     `UPDATE payers SET name = $1, type = $2, default_coverage_pct = $3, notes = $4 WHERE id = $5`,

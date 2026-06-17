@@ -4,6 +4,7 @@ import {
   getReturnedQuantities,
   listReturnsForSale,
   type ReturnItem,
+  type ReturnMethod,
 } from "@/db/returns";
 
 export function useReturnsForSale(saleId: number | undefined) {
@@ -27,7 +28,7 @@ export function useCreateReturn() {
   return useMutation({
     mutationFn: (input: {
       sale_id: number;
-      method: "refund";
+      method: ReturnMethod;
       notes: string | null;
       items: ReturnItem[];
     }) => createReturn(input),

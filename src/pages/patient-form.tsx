@@ -42,10 +42,7 @@ import type { PatientInput } from "@/db/patients";
 import { isEmail, isNin, isPhone } from "@/lib/validators";
 
 const optionalPhone = (t: TFunction) =>
-  z
-    .string()
-    .trim()
-    .refine(isPhone, t("validation.invalidPhone"));
+  z.string().trim().refine(isPhone, t("validation.invalidPhone"));
 
 const buildSchema = (t: TFunction) =>
   z.object({
@@ -84,7 +81,9 @@ const empty: FormValues = {
 };
 
 function toInput(values: FormValues): PatientInput {
-  const payerId = values.default_payer_id ? Number(values.default_payer_id) : null;
+  const payerId = values.default_payer_id
+    ? Number(values.default_payer_id)
+    : null;
   return {
     full_name: values.full_name,
     phone: values.phone || null,
@@ -171,7 +170,8 @@ export default function PatientFormPage() {
     // Pre-fill coverage from the payer's default when none entered yet.
     if (value && !form.getValues("coverage_pct")) {
       const p = payers?.find((x) => String(x.id) === value);
-      if (p) form.setValue("coverage_pct", String(p.default_coverage_pct / 100));
+      if (p)
+        form.setValue("coverage_pct", String(p.default_coverage_pct / 100));
     }
   }
 
@@ -211,7 +211,9 @@ export default function PatientFormPage() {
       );
       if (dups.length) {
         pendingValues.current = values;
-        setDupNames(dups.map((d) => `${d.full_name}${d.code ? ` (${d.code})` : ""}`));
+        setDupNames(
+          dups.map((d) => `${d.full_name}${d.code ? ` (${d.code})` : ""}`),
+        );
         setDupOpen(true);
         return;
       }
@@ -341,7 +343,11 @@ export default function PatientFormPage() {
                     <FormItem>
                       <FormLabel>{t("patients.email")}</FormLabel>
                       <FormControl>
-                        <Input type="email" placeholder="nom@example.com" {...field} />
+                        <Input
+                          type="email"
+                          placeholder="nom@example.com"
+                          {...field}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -428,12 +434,7 @@ export default function PatientFormPage() {
                         <FormItem>
                           <FormLabel>{t("patients.coveragePct")}</FormLabel>
                           <FormControl>
-                            <Input
-                              type="number"
-                              min="0"
-                              max="100"
-                              {...field}
-                            />
+                            <Input type="number" min="0" max="100" {...field} />
                           </FormControl>
                           <FormMessage />
                         </FormItem>
@@ -518,7 +519,9 @@ export default function PatientFormPage() {
         onOpenChange={setDupOpen}
         destructive={false}
         title={t("patients.duplicateTitle")}
-        description={t("patients.duplicateDesc", { names: dupNames.join(", ") })}
+        description={t("patients.duplicateDesc", {
+          names: dupNames.join(", "),
+        })}
         confirmText={t("patients.duplicateProceed")}
         onConfirm={() => {
           setDupOpen(false);

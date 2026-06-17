@@ -21,35 +21,49 @@ export interface PrescriptionInput {
   l_prism?: number | null;
   l_base?: string | null;
   l_seg_height?: number | null;
+  r_bc?: number | null;
+  l_bc?: number | null;
+  r_dia?: number | null;
+  l_dia?: number | null;
   prescriber?: string | null;
   expiry_date?: string | null;
   notes?: string | null;
 }
 
 /** Prescriptions for a patient, most recent first (history view). */
-export async function listPrescriptions(patientId: number): Promise<Prescription[]> {
+export async function listPrescriptions(
+  patientId: number,
+): Promise<Prescription[]> {
   const db = await getDb();
   return db.select<Prescription[]>(
-    "SELECT * FROM prescriptions WHERE patient_id = $1 ORDER BY exam_date DESC, id DESC",
+    "SELECT * FROM prescriptions WHERE patient_id = $1 AND archived = 0 ORDER BY exam_date DESC, id DESC",
     [patientId],
   );
 }
 
-export async function getPrescription(id: number): Promise<Prescription | null> {
+export async function getPrescription(
+  id: number,
+): Promise<Prescription | null> {
   const db = await getDb();
-  const rows = await db.select<Prescription[]>("SELECT * FROM prescriptions WHERE id = $1", [id]);
+  const rows = await db.select<Prescription[]>(
+    "SELECT * FROM prescriptions WHERE id = $1",
+    [id],
+  );
   return rows[0] ?? null;
 }
 
-export async function createPrescription(input: PrescriptionInput): Promise<number> {
+export async function createPrescription(
+  input: PrescriptionInput,
+): Promise<number> {
   const db = await getDb();
   const res = await db.execute(
     `INSERT INTO prescriptions
        (patient_id, exam_date, r_sphere, r_cylinder, r_axis, r_add, r_pd,
         l_sphere, l_cylinder, l_axis, l_add, l_pd,
         lens_type, r_prism, r_base, r_seg_height, l_prism, l_base, l_seg_height,
+        r_bc, l_bc, r_dia, l_dia,
         prescriber, expiry_date, notes)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`,
     [
       input.patient_id,
       input.exam_date,
@@ -70,6 +84,10 @@ export async function createPrescription(input: PrescriptionInput): Promise<numb
       input.l_prism ?? null,
       input.l_base ?? null,
       input.l_seg_height ?? null,
+      input.r_bc ?? null,
+      input.l_bc ?? null,
+      input.r_dia ?? null,
+      input.l_dia ?? null,
       input.prescriber ?? null,
       input.expiry_date ?? null,
       input.notes ?? null,
@@ -78,7 +96,12 @@ export async function createPrescription(input: PrescriptionInput): Promise<numb
   return res.lastInsertId ?? 0;
 }
 
+/** Soft-deletes a prescription. Medical records are never hard-deleted, and an Rx that
+ * a lab job or sale still references stays put (audit finding G3). */
 export async function deletePrescription(id: number): Promise<void> {
   const db = await getDb();
-  await db.execute("DELETE FROM prescriptions WHERE id = $1", [id]);
+  await db.execute(
+    "UPDATE prescriptions SET archived = 1 WHERE id = $1",
+    [id],
+  );
 }

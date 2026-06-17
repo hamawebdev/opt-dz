@@ -9,7 +9,10 @@ export const DEFAULT_CURRENCY = "DA";
  * the amount isn't a whole dinar. Centimes are the canonical money unit across the
  * app — every stored/computed money value is an integer centime count (see types.ts).
  */
-export function formatDZD(centimes: number | null | undefined, symbol = DEFAULT_CURRENCY): string {
+export function formatDZD(
+  centimes: number | null | undefined,
+  symbol = DEFAULT_CURRENCY,
+): string {
   const value = Number(centimes ?? 0) / 100;
   const hasFraction = Math.abs(value % 1) > 0.0001;
   const formatted = value.toLocaleString("en-US", {
@@ -40,6 +43,19 @@ function toDate(value: string | null | undefined): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+/**
+ * Local calendar date as `YYYY-MM-DD`. Unlike `new Date().toISOString().slice(0,10)`
+ * (which is UTC and rolls an early-morning sale into the wrong day for UTC+ offsets
+ * like Algeria), this matches SQLite's `date('now','localtime')` used across the
+ * reports (audit finding A6). Pass a Date to format an arbitrary day.
+ */
+export function todayISO(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 /** Human date, e.g. "13 Jun 2026". */
 export function formatDate(value: string | null | undefined): string {
   const d = toDate(value);
@@ -57,14 +73,19 @@ export function formatDateTime(value: string | null | undefined): string {
  * Used for sphere/cylinder/addition on prescriptions.
  */
 export function formatDiopter(value: number | null | undefined): string {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
+  if (value === null || value === undefined || Number.isNaN(Number(value)))
+    return "—";
   const n = Number(value);
   const sign = n > 0 ? "+" : n < 0 ? "−" : "";
   return `${sign}${Math.abs(n).toFixed(2)}`;
 }
 
 /** Formats axis (whole degrees) and PD (mm) without forced sign. */
-export function formatPlain(value: number | null | undefined, suffix = ""): string {
-  if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
+export function formatPlain(
+  value: number | null | undefined,
+  suffix = "",
+): string {
+  if (value === null || value === undefined || Number.isNaN(Number(value)))
+    return "—";
   return `${Number(value)}${suffix}`;
 }

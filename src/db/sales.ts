@@ -15,7 +15,7 @@ export interface SaleItemInput {
 }
 
 export interface CreateSaleInput {
-  patient_id: number;
+  patient_id: number | null; // null for a walk-in / quick sale (no customer)
   prescription_id: number | null;
   sale_date: string;
   discount_type: DiscountType;
@@ -72,7 +72,10 @@ export async function createSale(input: CreateSaleInput): Promise<number> {
       discount_type: input.discount_type,
       discount_value: input.discount_value,
       notes: input.notes ?? null,
-      items: input.items.map((it) => ({ ...it, variant_id: it.variant_id ?? null })),
+      items: input.items.map((it) => ({
+        ...it,
+        variant_id: it.variant_id ?? null,
+      })),
       initial_payment: input.initial_payment ?? null,
       payment_method: input.payment_method ?? null,
       payer_id: input.payer_id ?? null,
@@ -81,7 +84,9 @@ export async function createSale(input: CreateSaleInput): Promise<number> {
   );
 }
 
-export async function listSales(filters: SaleListFilters = {}): Promise<SaleWithPatient[]> {
+export async function listSales(
+  filters: SaleListFilters = {},
+): Promise<SaleWithPatient[]> {
   const db = await getDb();
   const where: string[] = [];
   const params: unknown[] = [];
@@ -100,7 +105,7 @@ export async function listSales(filters: SaleListFilters = {}): Promise<SaleWith
   const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
   return db.select<SaleWithPatient[]>(
     `SELECT s.*, p.full_name AS patient_name
-     FROM sales s JOIN patients p ON p.id = s.patient_id
+     FROM sales s LEFT JOIN patients p ON p.id = s.patient_id
      ${clause}
      ORDER BY s.sale_date DESC, s.id DESC`,
     params,
@@ -111,7 +116,7 @@ export async function getSale(id: number): Promise<SaleWithPatient | null> {
   const db = await getDb();
   const rows = await db.select<SaleWithPatient[]>(
     `SELECT s.*, p.full_name AS patient_name
-     FROM sales s JOIN patients p ON p.id = s.patient_id
+     FROM sales s LEFT JOIN patients p ON p.id = s.patient_id
      WHERE s.id = $1`,
     [id],
   );
@@ -120,13 +125,18 @@ export async function getSale(id: number): Promise<SaleWithPatient | null> {
 
 export async function getSaleItems(saleId: number): Promise<SaleItem[]> {
   const db = await getDb();
-  return db.select<SaleItem[]>("SELECT * FROM sale_items WHERE sale_id = $1 ORDER BY id", [saleId]);
+  return db.select<SaleItem[]>(
+    "SELECT * FROM sale_items WHERE sale_id = $1 ORDER BY id",
+    [saleId],
+  );
 }
 
 /**
- * Restores stock for a sale's items and deletes the sale (cascading items/payments)
- * atomically via the Rust `delete_sale` command.
+ * Voids a sale via the Rust `void_sale` command: the fiscal invoice (and its number)
+ * is retained as `status='void'`, stock is restored, and any insurer claim is
+ * cancelled. Issued invoices are never hard-deleted (that would break the gap-free
+ * TVA sequence). Optionally records a reason.
  */
-export async function deleteSale(id: number): Promise<void> {
-  unwrap(await commands.deleteSale(id));
+export async function voidSale(id: number, reason?: string | null): Promise<void> {
+  unwrap(await commands.voidSale(id, reason ?? null));
 }

@@ -34,7 +34,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { PrescriptionDialog } from "@/components/prescription-dialog";
 import { AppointmentDialog } from "@/components/appointment-dialog";
 import {
-  useDeletePatient,
+  useArchivePatient,
   useDeletePrescription,
   usePatient,
   usePatientSummary,
@@ -57,11 +57,12 @@ import type { AppointmentStatus, SaleStatus } from "@/types";
 
 const statusVariant: Record<
   SaleStatus,
-  "default" | "secondary" | "destructive"
+  "default" | "secondary" | "destructive" | "outline"
 > = {
   paid: "default",
   partial: "secondary",
   unpaid: "destructive",
+  void: "outline",
 };
 
 const apptStatusVariant: Record<
@@ -93,7 +94,7 @@ export default function PatientDetailPage() {
   const { data: settings } = useSettings();
   const symbol = settings?.currency_symbol;
 
-  const deletePatient = useDeletePatient();
+  const deletePatient = useArchivePatient();
   const deleteRx = useDeletePrescription(patientId);
 
   const [rxOpen, setRxOpen] = useState(false);
@@ -118,10 +119,10 @@ export default function PatientDetailPage() {
   async function handleDeletePatient() {
     try {
       await deletePatient.mutateAsync(patientId);
-      toast.success(t("patients.deleted"));
+      toast.success(t("patients.archived"));
       navigate("/patients");
     } catch {
-      toast.error(t("patients.cannotDeleteLinked"));
+      toast.error(t("problem.actionFailed"));
     } finally {
       setConfirmPatient(false);
     }
@@ -163,7 +164,7 @@ export default function PatientDetailPage() {
             </Link>
           </Button>
           <Button variant="outline" onClick={() => setConfirmPatient(true)}>
-            <Trash2 className="text-destructive size-4" /> {t("common.delete")}
+            <Trash2 className="text-destructive size-4" /> {t("patients.archive")}
           </Button>
         </div>
       </div>
@@ -501,7 +502,10 @@ export default function PatientDetailPage() {
                       {t(`activity.type_${a.type}`)}
                     </span>
                     {a.description ? (
-                      <span className="text-muted-foreground"> · {a.description}</span>
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · {a.description}
+                      </span>
                     ) : null}
                   </span>
                 </div>
@@ -525,9 +529,9 @@ export default function PatientDetailPage() {
       <ConfirmDialog
         open={confirmPatient}
         onOpenChange={setConfirmPatient}
-        title={t("patients.deleteTitle")}
-        description={t("patients.deleteDescShort")}
-        confirmText={t("common.delete")}
+        title={t("patients.archiveTitle")}
+        description={t("patients.archiveDesc")}
+        confirmText={t("patients.archive")}
         onConfirm={handleDeletePatient}
       />
       <ConfirmDialog

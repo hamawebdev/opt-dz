@@ -23,7 +23,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useCreateReturn } from "@/hooks/use-returns";
+import type { ReturnMethod } from "@/db/returns";
 import { formatDZD } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { SaleItem } from "@/types";
 
 interface ReturnDialogProps {
@@ -46,6 +48,7 @@ export function ReturnDialog({
   const { t } = useTranslation();
   const [qty, setQty] = useState<Record<number, string>>({});
   const [notes, setNotes] = useState("");
+  const [method, setMethod] = useState<ReturnMethod>("refund");
   const create = useCreateReturn();
 
   function maxFor(it: SaleItem) {
@@ -54,7 +57,10 @@ export function ReturnDialog({
 
   async function handleSave() {
     const toReturn = items
-      .map((it) => ({ sale_item_id: it.id, quantity: Math.floor(Number(qty[it.id] ?? "0")) }))
+      .map((it) => ({
+        sale_item_id: it.id,
+        quantity: Math.floor(Number(qty[it.id] ?? "0")),
+      }))
       .filter((r) => r.quantity > 0);
     if (!toReturn.length) {
       toast.error(t("return.enterQty"));
@@ -63,12 +69,22 @@ export function ReturnDialog({
     for (const it of items) {
       const want = Math.floor(Number(qty[it.id] ?? "0"));
       if (want > maxFor(it)) {
-        toast.error(t("return.cannotReturnMore", { max: maxFor(it), description: it.description }));
+        toast.error(
+          t("return.cannotReturnMore", {
+            max: maxFor(it),
+            description: it.description,
+          }),
+        );
         return;
       }
     }
     try {
-      await create.mutateAsync({ sale_id: saleId, method: "refund", notes: notes.trim() || null, items: toReturn });
+      await create.mutateAsync({
+        sale_id: saleId,
+        method,
+        notes: notes.trim() || null,
+        items: toReturn,
+      });
       toast.success(t("return.refundRecorded"));
       onOpenChange(false);
     } catch (err) {
@@ -89,8 +105,12 @@ export function ReturnDialog({
             <TableRow>
               <TableHead>{t("return.item")}</TableHead>
               <TableHead className="text-right">{t("return.sold")}</TableHead>
-              <TableHead className="text-right">{t("return.returnable")}</TableHead>
-              <TableHead className="w-24 text-right">{t("return.returnCol")}</TableHead>
+              <TableHead className="text-right">
+                {t("return.returnable")}
+              </TableHead>
+              <TableHead className="w-24 text-right">
+                {t("return.returnCol")}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -114,7 +134,9 @@ export function ReturnDialog({
                       className="h-8 text-right"
                       value={qty[it.id] ?? ""}
                       disabled={max <= 0}
-                      onChange={(e) => setQty((p) => ({ ...p, [it.id]: e.target.value }))}
+                      onChange={(e) =>
+                        setQty((p) => ({ ...p, [it.id]: e.target.value }))
+                      }
                     />
                   </TableCell>
                 </TableRow>
@@ -122,6 +144,29 @@ export function ReturnDialog({
             })}
           </TableBody>
         </Table>
+
+        <div className="grid gap-1.5">
+          <Label>{t("return.method")}</Label>
+          <div className="grid grid-cols-2 gap-2">
+            {(["refund", "balance"] as ReturnMethod[]).map((m) => (
+              <Button
+                key={m}
+                type="button"
+                variant="outline"
+                className={cn(
+                  "h-auto flex-col items-start gap-0.5 py-2 text-start",
+                  method === m && "border-primary ring-primary/40 ring-2",
+                )}
+                onClick={() => setMethod(m)}
+              >
+                <span className="font-medium">{t(`return.method_${m}`)}</span>
+                <span className="text-muted-foreground text-xs font-normal">
+                  {t(`return.method_${m}_hint`)}
+                </span>
+              </Button>
+            ))}
+          </div>
+        </div>
 
         <div className="grid gap-1.5">
           <Label htmlFor="return_notes">{t("common.notes")}</Label>

@@ -60,16 +60,22 @@ export default function NotificationsPage() {
               <div
                 key={n.id}
                 className={
-                  "flex items-center gap-3 px-4 py-3 " + (isRead ? "opacity-50" : "")
+                  "flex items-center gap-3 px-4 py-3 " +
+                  (isRead ? "opacity-50" : "")
                 }
               >
                 <Icon
                   className={
                     "size-4 shrink-0 " +
-                    (n.severity === "error" ? "text-destructive" : "text-warning")
+                    (n.severity === "error"
+                      ? "text-destructive"
+                      : "text-warning")
                   }
                 />
-                <Link to={notifLink(n)} className="flex-1 text-sm hover:underline">
+                <Link
+                  to={notifLink(n)}
+                  className="flex-1 text-sm hover:underline"
+                >
                   {t(`notifications.${n.kind}`, {
                     name: n.productName,
                     meta: n.meta,

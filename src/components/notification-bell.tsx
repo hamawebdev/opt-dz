@@ -1,7 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Bell, AlertTriangle, PackageX, CalendarClock, CheckCheck } from "lucide-react";
+import {
+  Bell,
+  AlertTriangle,
+  PackageX,
+  CalendarClock,
+  CheckCheck,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -61,7 +67,8 @@ export function NotificationBell() {
               className="h-7 text-xs"
               onClick={() => dismissMany(unread.map((n) => n.id))}
             >
-              <CheckCheck className="size-3.5" /> {t("notifications.markAllRead")}
+              <CheckCheck className="size-3.5" />{" "}
+              {t("notifications.markAllRead")}
             </Button>
           )}
         </div>

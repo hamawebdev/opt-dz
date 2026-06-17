@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::Deserialize;
 use specta::Type;
 use sqlx::{Row, Sqlite, SqlitePool, Transaction};
@@ -36,7 +38,8 @@ pub struct SaleItemInput {
 
 #[derive(Debug, Deserialize, Type)]
 pub struct CreateSaleInput {
-    pub patient_id: i64,
+    /// `None` for a walk-in / quick sale with no registered customer.
+    pub patient_id: Option<i64>,
     pub prescription_id: Option<i64>,
     pub sale_date: String,
     pub discount_type: String,
@@ -65,37 +68,104 @@ fn status_for(total: i64, paid: i64) -> &'static str {
     }
 }
 
-/// Recomputes amount_paid/balance/status for a sale from the sum of its payments.
-/// Money columns are REAL-affinity (integer centimes stored as f64), so values are
-/// read as f64 and rounded back to integer centimes.
+/// Droit de timbre due on a cash sale's TTC `total`, from the configured rate/min/max.
+/// Kept in one place so create_sale and sync_sale_balance agree. 0 if no total/rate.
+async fn compute_timbre(tx: &mut Transaction<'_, Sqlite>, total: i64) -> Result<i64, String> {
+    if total <= 0 {
+        return Ok(0);
+    }
+    let rate = setting_i64(tx, "timbre_rate", 0).await?;
+    if rate <= 0 {
+        return Ok(0);
+    }
+    let tmin = setting_i64(tx, "timbre_min", 0).await?;
+    let tmax = setting_i64(tx, "timbre_max", 0).await?;
+    let mut t = ((total as i128 * rate as i128) / 10_000) as i64;
+    if t < tmin {
+        t = tmin;
+    }
+    if tmax > 0 && t > tmax {
+        t = tmax;
+    }
+    Ok(t)
+}
+
+/// Recomputes timbre/amount_paid/balance/status for a sale — the single place that
+/// reconciles a sale's money. Void sales are frozen (left untouched). Droit de timbre
+/// is (re)applied only when a cash payment exists against the sale; a 'balance' credit
+/// note (a return applied to the invoice rather than refunded) reduces what is owed.
+/// Money columns are REAL-affinity integer centimes stored as f64.
 async fn sync_sale_balance(tx: &mut Transaction<'_, Sqlite>, sale_id: i64) -> Result<(), String> {
-    // The patient owes goods (TTC) + timbre, minus the insurer-covered amount and
-    // minus what they've already paid.
-    let row = sqlx::query(
-        "SELECT s.total + s.timbre_amount
-                - COALESCE((SELECT covered_amount FROM claims WHERE sale_id = s.id), 0) AS due,
-                COALESCE(SUM(p.amount), 0.0) AS paid
-         FROM sales s LEFT JOIN payments p ON p.sale_id = s.id
-         WHERE s.id = ?1 GROUP BY s.id",
-    )
-    .bind(sale_id)
-    .fetch_optional(&mut **tx)
-    .await
-    .map_err(|e| e.to_string())?;
+    let row = sqlx::query("SELECT total, status FROM sales WHERE id = ?1")
+        .bind(sale_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|e| e.to_string())?;
     let Some(row) = row else {
         return Ok(());
     };
-    let due = row.try_get::<f64, _>("due").map_err(|e| e.to_string())?.round() as i64;
-    let paid = row.try_get::<f64, _>("paid").map_err(|e| e.to_string())?.round() as i64;
-    let balance = (due - paid).max(0);
-    sqlx::query("UPDATE sales SET amount_paid = ?1, balance = ?2, status = ?3 WHERE id = ?4")
-        .bind(paid)
-        .bind(balance)
-        .bind(status_for(due, paid))
+    let status: String = row.try_get("status").map_err(|e| e.to_string())?;
+    if status == "void" {
+        return Ok(()); // a voided invoice is immutable
+    }
+    let total = row.try_get::<f64, _>("total").map_err(|e| e.to_string())?.round() as i64;
+
+    // Timbre applies once the sale has been (partly) settled in cash.
+    let has_cash: bool = sqlx::query(
+        "SELECT EXISTS(SELECT 1 FROM payments WHERE sale_id = ?1 AND lower(method) = 'cash') AS x",
+    )
+    .bind(sale_id)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|e| e.to_string())?
+    .try_get::<i64, _>("x")
+    .map_err(|e| e.to_string())?
+        != 0;
+    let timbre = if has_cash { compute_timbre(tx, total).await? } else { 0 };
+
+    let covered: i64 = sqlx::query(
+        "SELECT COALESCE((SELECT covered_amount FROM claims WHERE sale_id = ?1), 0) AS c",
+    )
+    .bind(sale_id)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|e| e.to_string())?
+    .try_get::<i64, _>("c")
+    .map_err(|e| e.to_string())?;
+
+    let balance_credit = sqlx::query(
+        "SELECT COALESCE(SUM(total), 0) AS c FROM credit_notes WHERE sale_id = ?1 AND method = 'balance'",
+    )
+    .bind(sale_id)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|e| e.to_string())?
+    .try_get::<i64, _>("c")
+    .map_err(|e| e.to_string())?;
+
+    let paid = sqlx::query("SELECT COALESCE(SUM(amount), 0.0) AS p FROM payments WHERE sale_id = ?1")
         .bind(sale_id)
-        .execute(&mut **tx)
+        .fetch_one(&mut **tx)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+        .try_get::<f64, _>("p")
+        .map_err(|e| e.to_string())?
+        .round() as i64;
+
+    let due = (total + timbre - covered - balance_credit).max(0);
+    let balance = (due - paid).max(0);
+    let new_status = if due <= 0 { "paid" } else { status_for(due, paid) };
+    sqlx::query(
+        "UPDATE sales SET timbre_amount = ?1, amount_paid = ?2, balance = ?3, status = ?4 WHERE id = ?5",
+    )
+    .bind(timbre)
+    .bind(paid)
+    .bind(balance)
+    .bind(new_status)
+    .bind(sale_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -140,6 +210,21 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
     let pool = db_pool(&app).await?;
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
+    // Validate every line up front (the Rust command is the real authority; the UI
+    // floor in pos-totals.ts is only a convenience). Rejects negative-quantity lines
+    // that would otherwise *increase* stock and reduce revenue.
+    for it in &input.items {
+        if it.quantity < 1 {
+            return Err("Each line must have a quantity of at least 1".into());
+        }
+        if it.unit_price < 0 {
+            return Err("Unit price cannot be negative".into());
+        }
+        if it.item_discount < 0 || it.item_discount > it.unit_price * it.quantity {
+            return Err("Line discount is out of range".into());
+        }
+    }
+
     let subtotal: i64 = input.items.iter().map(line_total).sum();
     let discount = if input.discount_type == "percent" {
         ((subtotal as i128 * input.discount_value as i128) / 10_000) as i64
@@ -148,8 +233,9 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
     };
     let total = (subtotal - discount).max(0);
 
-    // TVA is extracted from the tax-inclusive (TTC) total; droit de timbre is added
-    // on cash sales. Rates/min/max come from `settings`, read inside the txn.
+    // TVA is extracted from the tax-inclusive (TTC) total. Droit de timbre is applied
+    // by sync_sale_balance once a cash payment exists; here we only compute a
+    // provisional value to cap the optional initial payment.
     let tax_rate = setting_i64(&mut tx, "tva_rate", 0).await?;
     let tax_amount = if tax_rate > 0 && total > 0 {
         let net_ht = ((total as i128 * 10_000) / (10_000 + tax_rate as i128)) as i64;
@@ -157,22 +243,8 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
     } else {
         0
     };
-    let timbre_amount = if input.payment_method.as_deref() == Some("cash") {
-        let rate = setting_i64(&mut tx, "timbre_rate", 0).await?;
-        if rate <= 0 {
-            0
-        } else {
-            let tmin = setting_i64(&mut tx, "timbre_min", 0).await?;
-            let tmax = setting_i64(&mut tx, "timbre_max", 0).await?;
-            let mut t = ((total as i128 * rate as i128) / 10_000) as i64;
-            if t < tmin {
-                t = tmin;
-            }
-            if tmax > 0 && t > tmax {
-                t = tmax;
-            }
-            t
-        }
+    let provisional_timbre = if input.payment_method.as_deref() == Some("cash") {
+        compute_timbre(&mut tx, total).await?
     } else {
         0
     };
@@ -186,10 +258,9 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
         }
         None => 0,
     };
-    let patient_due = total - covered + timbre_amount;
+    let patient_due = (total - covered + provisional_timbre).max(0);
+    // Clamp the initial payment so a sale is never created already overpaid.
     let cash_paid = input.initial_payment.unwrap_or(0).clamp(0, patient_due);
-    let paid = cash_paid;
-    let balance = (patient_due - paid).max(0);
 
     // Allocate a continuous, gap-free invoice number from the running counter.
     let next = setting_i64(&mut tx, "invoice_next", 1).await?;
@@ -205,60 +276,75 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
     .await
     .map_err(|e| e.to_string())?;
 
-    // Validate stock before mutating anything; an early return drops `tx`, which
-    // rolls back automatically. Services carry no stock, so they are skipped here
-    // and recorded (below) so the deduction loop doesn't touch them either.
+    // Aggregate required quantities per product/variant before validating, so the same
+    // item split across two lines can't each pass a full-availability check (B2). An
+    // early return drops `tx`, which rolls back automatically. Services carry no stock
+    // and are recorded so the deduction loop skips them too.
     let mut service_ids: Vec<i64> = Vec::new();
+    let mut need_variant: HashMap<i64, i64> = HashMap::new();
+    let mut need_product: HashMap<i64, i64> = HashMap::new();
     for it in &input.items {
-        // Variant-tracked line: validate against the variant's own stock.
         if let Some(vid) = it.variant_id {
-            let row = sqlx::query("SELECT quantity FROM product_variants WHERE id = ?1")
-                .bind(vid)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(|e| e.to_string())?;
-            let Some(row) = row else {
-                return Err(format!("Variant #{vid} no longer exists"));
-            };
-            let available: i64 = row.try_get("quantity").map_err(|e| e.to_string())?;
-            if it.quantity > available {
-                return Err(format!(
-                    "Not enough stock for variant: need {}, have {available}",
-                    it.quantity
-                ));
-            }
+            *need_variant.entry(vid).or_default() += it.quantity;
             continue;
         }
         if let Some(pid) = it.product_id {
-            let row = sqlx::query("SELECT quantity, name, item_type FROM products WHERE id = ?1")
+            if service_ids.contains(&pid) {
+                continue;
+            }
+            let item_type: Option<String> = sqlx::query("SELECT item_type FROM products WHERE id = ?1")
                 .bind(pid)
                 .fetch_optional(&mut *tx)
                 .await
-                .map_err(|e| e.to_string())?;
-            let Some(row) = row else {
+                .map_err(|e| e.to_string())?
+                .map(|r| r.try_get::<String, _>("item_type").unwrap_or_default());
+            let Some(item_type) = item_type else {
                 return Err(format!("Product #{pid} no longer exists"));
             };
-            let item_type: String = row.try_get("item_type").unwrap_or_default();
             if item_type == "service" {
                 service_ids.push(pid);
                 continue;
             }
-            let available: i64 = row.try_get("quantity").map_err(|e| e.to_string())?;
-            if it.quantity > available {
-                let name: String = row.try_get("name").unwrap_or_default();
-                return Err(format!(
-                    "Not enough stock for {name}: need {}, have {available}",
-                    it.quantity
-                ));
-            }
+            *need_product.entry(pid).or_default() += it.quantity;
+        }
+    }
+    for (vid, need) in &need_variant {
+        let row = sqlx::query("SELECT quantity FROM product_variants WHERE id = ?1")
+            .bind(vid)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        let Some(row) = row else {
+            return Err(format!("Variant #{vid} no longer exists"));
+        };
+        let available: i64 = row.try_get("quantity").map_err(|e| e.to_string())?;
+        if *need > available {
+            return Err(format!("Not enough stock for variant: need {need}, have {available}"));
+        }
+    }
+    for (pid, need) in &need_product {
+        let row = sqlx::query("SELECT quantity, name FROM products WHERE id = ?1")
+            .bind(pid)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        let Some(row) = row else {
+            return Err(format!("Product #{pid} no longer exists"));
+        };
+        let available: i64 = row.try_get("quantity").map_err(|e| e.to_string())?;
+        if *need > available {
+            let name: String = row.try_get("name").unwrap_or_default();
+            return Err(format!("Not enough stock for {name}: need {need}, have {available}"));
         }
     }
 
+    // Insert with placeholder money columns; sync_sale_balance (below) computes the
+    // authoritative timbre/amount_paid/balance/status once items + payment are in.
     let sale_id: i64 = sqlx::query(
         "INSERT INTO sales (patient_id, prescription_id, sale_date, subtotal, discount_type,
             discount_value, total, tax_rate, tax_amount, timbre_amount, invoice_number,
             amount_paid, balance, status, notes)
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,0,?10,0,0,'unpaid',?11)",
     )
     .bind(input.patient_id)
     .bind(input.prescription_id)
@@ -269,11 +355,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
     .bind(total)
     .bind(tax_rate)
     .bind(tax_amount)
-    .bind(timbre_amount)
     .bind(&invoice_number)
-    .bind(paid)
-    .bind(balance)
-    .bind(status_for(patient_due, paid))
     .bind(&input.notes)
     .execute(&mut *tx)
     .await
@@ -321,10 +403,36 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
     }
 
     for it in &input.items {
+        // Snapshot unit cost (COGS) at sale time so margin reports stay correct even
+        // after a later delivery overwrites the product/variant purchase price (C4).
+        let unit_cost: i64 = if let Some(vid) = it.variant_id {
+            sqlx::query(
+                "SELECT COALESCE(v.purchase_price, p.purchase_price, 0) AS c
+                 FROM product_variants v JOIN products p ON p.id = v.product_id WHERE v.id = ?1",
+            )
+            .bind(vid)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?
+            .and_then(|r| r.try_get::<f64, _>("c").ok())
+            .map(|c| c.round() as i64)
+            .unwrap_or(0)
+        } else if let Some(pid) = it.product_id {
+            sqlx::query("SELECT purchase_price AS c FROM products WHERE id = ?1")
+                .bind(pid)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| e.to_string())?
+                .and_then(|r| r.try_get::<f64, _>("c").ok())
+                .map(|c| c.round() as i64)
+                .unwrap_or(0)
+        } else {
+            0
+        };
         sqlx::query(
             "INSERT INTO sale_items
-                (sale_id, product_id, variant_id, description, unit_price, quantity, item_discount, line_total)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                (sale_id, product_id, variant_id, description, unit_price, quantity, item_discount, line_total, unit_cost)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
         )
         .bind(sale_id)
         .bind(it.product_id)
@@ -334,6 +442,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
         .bind(it.quantity)
         .bind(it.item_discount)
         .bind(line_total(it))
+        .bind(unit_cost)
         .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
@@ -396,6 +505,8 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
         .await
         .map_err(|e| e.to_string())?;
     }
+    // Reconcile timbre/amount_paid/balance/status from what was just written.
+    sync_sale_balance(&mut tx, sale_id).await?;
     tx.commit().await.map_err(|e| e.to_string())?;
     Ok(sale_id)
 }
@@ -415,6 +526,55 @@ async fn record_payment(
     }
     let pool = db_pool(&app).await?;
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+    // Reject overpayment (B4). The ceiling is the most the patient could owe — goods
+    // plus the full possible timbre, minus insurer coverage and any balance credits.
+    let row = sqlx::query("SELECT total, status FROM sales WHERE id = ?1")
+        .bind(sale_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("Sale not found")?;
+    let status: String = row.try_get("status").map_err(|e| e.to_string())?;
+    if status == "void" {
+        return Err("This sale has been voided".into());
+    }
+    let total = row.try_get::<f64, _>("total").map_err(|e| e.to_string())?.round() as i64;
+    let max_timbre = compute_timbre(&mut tx, total).await?;
+    let covered: i64 = sqlx::query(
+        "SELECT COALESCE((SELECT covered_amount FROM claims WHERE sale_id = ?1), 0) AS c",
+    )
+    .bind(sale_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?
+    .try_get::<i64, _>("c")
+    .map_err(|e| e.to_string())?;
+    let balance_credit: i64 = sqlx::query(
+        "SELECT COALESCE(SUM(total), 0) AS c FROM credit_notes WHERE sale_id = ?1 AND method = 'balance'",
+    )
+    .bind(sale_id)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?
+    .try_get::<i64, _>("c")
+    .map_err(|e| e.to_string())?;
+    let already = sqlx::query("SELECT COALESCE(SUM(amount), 0.0) AS p FROM payments WHERE sale_id = ?1")
+        .bind(sale_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?
+        .try_get::<f64, _>("p")
+        .map_err(|e| e.to_string())?
+        .round() as i64;
+    let max_due = (total + max_timbre - covered - balance_credit).max(0);
+    if already + amount > max_due {
+        let remaining = (max_due - already).max(0);
+        return Err(format!(
+            "Payment exceeds the amount owed ({remaining} centimes remaining)"
+        ));
+    }
+
     sqlx::query("INSERT INTO payments (sale_id, amount, method, note) VALUES (?1, ?2, ?3, ?4)")
         .bind(sale_id)
         .bind(amount)
@@ -444,13 +604,41 @@ async fn delete_payment(app: AppHandle, payment_id: i64, sale_id: i64) -> Result
     Ok(())
 }
 
-/// Restores stock for a sale's items (logging adjustment movements) and deletes the
-/// sale (cascading items/payments) in a single transaction.
+/// Voids a sale: a fiscally-issued invoice is never deleted (that would break the
+/// gap-free TVA sequence). Instead it is marked `status = 'void'` — the row and its
+/// invoice number are retained for audit — while stock is restored, any insurer claim
+/// is cancelled, and the patient owes nothing. Rejected if the sale already has a
+/// credit note (process/undo the return first) or is already void. Recorded payments
+/// are left in place as a historical record; refunding them is a separate cash action.
 #[tauri::command]
 #[specta::specta]
-async fn delete_sale(app: AppHandle, sale_id: i64) -> Result<(), String> {
+async fn void_sale(app: AppHandle, sale_id: i64, reason: Option<String>) -> Result<(), String> {
     let pool = db_pool(&app).await?;
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+    let status: String = sqlx::query("SELECT status FROM sales WHERE id = ?1")
+        .bind(sale_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("Sale not found")?
+        .try_get("status")
+        .map_err(|e| e.to_string())?;
+    if status == "void" {
+        return Err("This sale is already void".into());
+    }
+    let cn_count: i64 = sqlx::query("SELECT COUNT(*) AS c FROM credit_notes WHERE sale_id = ?1")
+        .bind(sale_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?
+        .try_get("c")
+        .map_err(|e| e.to_string())?;
+    if cn_count > 0 {
+        return Err("This sale has returns — undo or refund those before voiding".into());
+    }
+
+    // Restore stock for each line (logging reversing adjustment movements).
     let items =
         sqlx::query("SELECT product_id, variant_id, quantity FROM sale_items WHERE sale_id = ?1")
             .bind(sale_id)
@@ -477,7 +665,7 @@ async fn delete_sale(app: AppHandle, sale_id: i64) -> Result<(), String> {
             .bind(pid)
             .bind(vid)
             .bind(qty)
-            .bind(format!("Reversed sale #{sale_id}"))
+            .bind(format!("Voided sale #{sale_id}"))
             .execute(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
@@ -496,17 +684,41 @@ async fn delete_sale(app: AppHandle, sale_id: i64) -> Result<(), String> {
             )
             .bind(pid)
             .bind(qty)
-            .bind(format!("Reversed sale #{sale_id}"))
+            .bind(format!("Voided sale #{sale_id}"))
             .execute(&mut *tx)
             .await
             .map_err(|e| e.to_string())?;
         }
     }
-    sqlx::query("DELETE FROM sales WHERE id = ?1")
-        .bind(sale_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
+
+    // Cancel any insurer claim — a voided invoice is no longer claimable.
+    sqlx::query(
+        "UPDATE claims SET covered_amount = 0, status = 'rejected' WHERE sale_id = ?1",
+    )
+    .bind(sale_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Annotate any linked lab job so it isn't silently orphaned.
+    sqlx::query(
+        "UPDATE jobs SET notes = TRIM(COALESCE(notes, '') || ' [Sale voided]'), updated_at = datetime('now')
+         WHERE sale_id = ?1",
+    )
+    .bind(sale_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        "UPDATE sales SET status = 'void', voided_at = datetime('now'), void_reason = ?1, balance = 0 WHERE id = ?2",
+    )
+    .bind(&reason)
+    .bind(sale_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
     tx.commit().await.map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -520,34 +732,54 @@ pub struct ReturnItemInput {
 #[derive(Debug, Deserialize, Type)]
 pub struct CreateReturnInput {
     pub sale_id: i64,
-    pub method: String, // always "refund"
+    /// 'refund' = cash back to the customer; 'balance' = credit the sale's outstanding balance.
+    pub method: String,
     pub notes: Option<String>,
     pub items: Vec<ReturnItemInput>,
 }
 
-/// Processes a return as a credit note: validates returnable quantities (against what
-/// was sold minus already-returned), restocks the goods, and records the credit note
-/// and its items as a cash refund. The original sale is left intact. Returns the new
-/// credit-note id.
+/// Processes a return as a numbered credit note (avoir): validates returnable quantities,
+/// restocks the goods, and credits the customer the **net amount actually borne** for the
+/// returned lines — i.e. their share after the global discount and insurer coverage
+/// (`line_total × (total − covered) / subtotal`), not the raw line price. A 'refund' is
+/// capped at what the customer has paid (use 'balance' for the unpaid portion); a 'balance'
+/// credit reduces the sale's outstanding balance via sync_sale_balance. The original
+/// invoice is left intact. Insurer-claim reconciliation for returned goods is handled
+/// separately on the claims screen. Returns the new credit-note id.
 #[tauri::command]
 #[specta::specta]
 async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, String> {
     if input.items.is_empty() {
         return Err("Select at least one item to return".into());
     }
-    if input.method != "refund" {
+    if input.method != "refund" && input.method != "balance" {
         return Err("Invalid return method".into());
     }
     let pool = db_pool(&app).await?;
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
 
-    let patient_id: i64 = sqlx::query("SELECT patient_id FROM sales WHERE id = ?1")
-        .bind(input.sale_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?
-        .and_then(|r| r.try_get::<i64, _>("patient_id").ok())
-        .ok_or("Sale not found")?;
+    // Load the sale's net basis: a walk-in has a NULL patient; a void sale can't be returned.
+    let sale = sqlx::query(
+        "SELECT patient_id, status, subtotal, total, amount_paid,
+                COALESCE((SELECT covered_amount FROM claims WHERE sale_id = sales.id), 0) AS covered
+         FROM sales WHERE id = ?1",
+    )
+    .bind(input.sale_id)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?
+    .ok_or("Sale not found")?;
+    let patient_id: Option<i64> = sale.try_get("patient_id").map_err(|e| e.to_string())?;
+    let sale_status: String = sale.try_get("status").map_err(|e| e.to_string())?;
+    if sale_status == "void" {
+        return Err("This sale has been voided".into());
+    }
+    let sale_subtotal = sale.try_get::<f64, _>("subtotal").map_err(|e| e.to_string())?.round() as i64;
+    let sale_total = sale.try_get::<f64, _>("total").map_err(|e| e.to_string())?.round() as i64;
+    let amount_paid = sale.try_get::<f64, _>("amount_paid").map_err(|e| e.to_string())?.round() as i64;
+    let covered: i64 = sale.try_get("covered").map_err(|e| e.to_string())?;
+    // Net the patient bears across all goods, as a fraction of subtotal: (total − covered)/subtotal.
+    let net_basis = (sale_total - covered).max(0);
 
     // (sale_item_id, product_id, description, qty, value)
     let mut collected: Vec<(i64, Option<i64>, String, i64, i64)> = Vec::new();
@@ -593,7 +825,14 @@ async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, 
             ));
         }
 
-        let per_unit = if orig_qty > 0 { line_total / orig_qty } else { 0 };
+        // Net value the customer is owed for this whole line, then split per unit. Falls
+        // back to the raw line value if the sale carried no subtotal (all free-text lines).
+        let line_net = if sale_subtotal > 0 {
+            ((line_total as i128 * net_basis as i128) / sale_subtotal as i128) as i64
+        } else {
+            line_total
+        };
+        let per_unit = if orig_qty > 0 { line_net / orig_qty } else { 0 };
         let value = per_unit * ri.quantity;
         total += value;
 
@@ -645,14 +884,49 @@ async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, 
         return Err("Nothing to return".into());
     }
 
+    // A cash refund cannot exceed what the customer has actually paid (across this and
+    // any prior cash refunds). Direct the unpaid remainder to a 'balance' credit instead.
+    if input.method == "refund" {
+        let prior_refunds: i64 = sqlx::query(
+            "SELECT COALESCE(SUM(total), 0) AS r FROM credit_notes WHERE sale_id = ?1 AND method = 'refund'",
+        )
+        .bind(input.sale_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?
+        .try_get::<i64, _>("r")
+        .map_err(|e| e.to_string())?;
+        if prior_refunds + total > amount_paid {
+            let refundable = (amount_paid - prior_refunds).max(0);
+            return Err(format!(
+                "Cash refund exceeds paid amount ({refundable} centimes refundable) — apply the rest to the balance instead"
+            ));
+        }
+    }
+
+    // Allocate a sequential avoir (credit-note) number, mirroring invoice numbering.
+    let cn_next = setting_i64(&mut tx, "credit_note_next", 1).await?;
+    let cn_prefix = setting_str(&mut tx, "credit_note_prefix", "A").await?;
+    let cn_padding = setting_i64(&mut tx, "credit_note_padding", 6).await?.max(1) as usize;
+    let cn_number = format!("{}{:0>width$}", cn_prefix, cn_next, width = cn_padding);
+    sqlx::query(
+        "INSERT INTO settings (key, value) VALUES ('credit_note_next', ?1)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+    )
+    .bind((cn_next + 1).to_string())
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
     let cn_id: i64 = sqlx::query(
-        "INSERT INTO credit_notes (sale_id, patient_id, total, method, notes)
-         VALUES (?1, ?2, ?3, ?4, ?5)",
+        "INSERT INTO credit_notes (sale_id, patient_id, total, method, cn_number, notes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
     )
     .bind(input.sale_id)
     .bind(patient_id)
     .bind(total)
     .bind(&input.method)
+    .bind(&cn_number)
     .bind(&input.notes)
     .execute(&mut *tx)
     .await
@@ -676,8 +950,135 @@ async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, 
         .map_err(|e| e.to_string())?;
     }
 
+    // A 'balance' credit reduces what the customer still owes on the invoice.
+    if input.method == "balance" {
+        sync_sale_balance(&mut tx, input.sale_id).await?;
+    }
+
     tx.commit().await.map_err(|e| e.to_string())?;
     Ok(cn_id)
+}
+
+/// Updates an insurance claim's status. The 'rejected' path re-bills the patient: the
+/// previously-covered amount is zeroed and the sale's balance re-synced, so a rejected
+/// claim no longer silently disappears from what the patient owes (audit finding E1).
+#[tauri::command]
+#[specta::specta]
+async fn set_claim_status(
+    app: AppHandle,
+    claim_id: i64,
+    status: String,
+    claim_ref: Option<String>,
+) -> Result<(), String> {
+    const ALLOWED: [&str; 5] = ["pending", "submitted", "partial", "paid", "rejected"];
+    if !ALLOWED.contains(&status.as_str()) {
+        return Err("Invalid claim status".into());
+    }
+    let pool = db_pool(&app).await?;
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+    let sale_id: i64 = sqlx::query("SELECT sale_id FROM claims WHERE id = ?1")
+        .bind(claim_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("Claim not found")?
+        .try_get("sale_id")
+        .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        "UPDATE claims
+           SET status = ?1,
+               claim_ref = COALESCE(?2, claim_ref),
+               submitted_at = CASE WHEN ?1 IN ('submitted','partial','paid') AND submitted_at IS NULL
+                                   THEN datetime('now') ELSE submitted_at END,
+               paid_at = CASE WHEN ?1 = 'paid' THEN datetime('now') ELSE paid_at END,
+               covered_amount = CASE WHEN ?1 = 'rejected' THEN 0 ELSE covered_amount END
+         WHERE id = ?3",
+    )
+    .bind(&status)
+    .bind(&claim_ref)
+    .bind(claim_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Rejection zeroes coverage → the patient is re-billed; re-sync the sale balance.
+    if status == "rejected" {
+        sync_sale_balance(&mut tx, sale_id).await?;
+    }
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Merges a duplicate patient into a surviving one: re-points all of the duplicate's
+/// records (sales, prescriptions, jobs, appointments, credit notes, activity, held
+/// carts, custom fields) onto `keep_id`, then deletes the now-empty duplicate. Custom
+/// fields that would collide (same attribute on both) keep the survivor's value.
+#[tauri::command]
+#[specta::specta]
+async fn merge_patients(app: AppHandle, keep_id: i64, dup_id: i64) -> Result<(), String> {
+    if keep_id == dup_id {
+        return Err("Cannot merge a patient into itself".into());
+    }
+    let pool = db_pool(&app).await?;
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+
+    for id in [keep_id, dup_id] {
+        let exists = sqlx::query("SELECT 1 AS x FROM patients WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        if exists.is_none() {
+            return Err(format!("Patient #{id} not found"));
+        }
+    }
+
+    for sql in [
+        "UPDATE sales SET patient_id = ?1 WHERE patient_id = ?2",
+        "UPDATE prescriptions SET patient_id = ?1 WHERE patient_id = ?2",
+        "UPDATE jobs SET patient_id = ?1 WHERE patient_id = ?2",
+        "UPDATE appointments SET patient_id = ?1 WHERE patient_id = ?2",
+        "UPDATE credit_notes SET patient_id = ?1 WHERE patient_id = ?2",
+        "UPDATE patient_activity SET patient_id = ?1 WHERE patient_id = ?2",
+        "UPDATE held_sales SET customer_id = ?1 WHERE customer_id = ?2",
+    ] {
+        sqlx::query(sql)
+            .bind(keep_id)
+            .bind(dup_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+
+    // Custom fields: drop the duplicate's values that collide with the survivor's
+    // (UNIQUE(patient_id, attribute_id)), then move the rest across.
+    sqlx::query(
+        "DELETE FROM patient_attribute_values WHERE patient_id = ?2
+         AND attribute_id IN (SELECT attribute_id FROM patient_attribute_values WHERE patient_id = ?1)",
+    )
+    .bind(keep_id)
+    .bind(dup_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    sqlx::query("UPDATE patient_attribute_values SET patient_id = ?1 WHERE patient_id = ?2")
+        .bind(keep_id)
+        .bind(dup_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // The duplicate now has no references; remove it.
+    sqlx::query("DELETE FROM patients WHERE id = ?1")
+        .bind(dup_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 /// Absolute path to the live SQLite file, resolved the same way tauri-plugin-sql
@@ -893,8 +1294,10 @@ fn specta_builder() -> Builder {
         create_sale,
         record_payment,
         delete_payment,
-        delete_sale,
+        void_sale,
         create_return,
+        set_claim_status,
+        merge_patients,
         backup_database,
         restore_database,
         export_text_file,
@@ -1753,6 +2156,323 @@ fn migrations() -> Vec<Migration> {
             -- Retire the EAV colour field. Stored values are kept for audit; archived
             -- definitions no longer render in the dynamic product form.
             UPDATE attribute_definitions SET archived = 1 WHERE key = 'frame_color';
+        "#,
+        },
+        // Quick Sale / walk-in POS: a sale (and its auto lab job / return credit note)
+        // no longer requires a patient. SQLite can't drop a NOT NULL constraint in place,
+        // so each affected table is rebuilt with patient_id nullable.
+        //
+        // IMPORTANT: with foreign keys enabled, `DROP TABLE sales` performs an implicit
+        // DELETE of every row, which fires ON DELETE actions on the children — CASCADE
+        // would wipe sale_items/payments/claims and SET NULL would clear jobs/credit_notes
+        // sale_id. We therefore snapshot those children into temp tables *before* the drop
+        // and restore the originals afterwards. `defer_foreign_keys` lets the intermediate
+        // states exist inside the transaction; integrity is re-checked (and passes, since
+        // all ids are preserved) at commit. Also adds `held_sales` (parked carts that
+        // survive restarts) and `product_favorites`.
+        Migration {
+            version: 19,
+            description: "walkin_sales_held_carts_favorites",
+            kind: MigrationKind::Up,
+            sql: r#"
+            PRAGMA defer_foreign_keys = ON;
+
+            -- Snapshot children that the sales drop would cascade-delete or null out.
+            CREATE TEMP TABLE _v19_si  AS SELECT * FROM sale_items;
+            CREATE TEMP TABLE _v19_pay AS SELECT * FROM payments;
+            CREATE TEMP TABLE _v19_clm AS SELECT * FROM claims;
+            CREATE TEMP TABLE _v19_job AS SELECT * FROM jobs;
+            CREATE TEMP TABLE _v19_cn  AS SELECT * FROM credit_notes;
+            CREATE TEMP TABLE _v19_cni AS SELECT * FROM credit_note_items;
+
+            -- Rebuild `sales` with a nullable patient_id (walk-in sales have no patient).
+            -- Column set mirrors the live schema: v1 base + tva/timbre/invoice columns.
+            CREATE TABLE sales_new (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id      INTEGER REFERENCES patients(id) ON DELETE RESTRICT,
+                prescription_id INTEGER REFERENCES prescriptions(id) ON DELETE SET NULL,
+                sale_date       TEXT NOT NULL DEFAULT (datetime('now')),
+                subtotal        REAL NOT NULL DEFAULT 0,
+                discount_type   TEXT NOT NULL DEFAULT 'amount' CHECK (discount_type IN ('amount','percent')),
+                discount_value  REAL NOT NULL DEFAULT 0,
+                total           REAL NOT NULL DEFAULT 0,
+                amount_paid     REAL NOT NULL DEFAULT 0,
+                balance         REAL NOT NULL DEFAULT 0,
+                status          TEXT NOT NULL DEFAULT 'unpaid' CHECK (status IN ('paid','partial','unpaid')),
+                notes           TEXT,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                tax_rate        INTEGER NOT NULL DEFAULT 0,
+                tax_amount      INTEGER NOT NULL DEFAULT 0,
+                timbre_amount   INTEGER NOT NULL DEFAULT 0,
+                invoice_number  TEXT
+            );
+            INSERT INTO sales_new SELECT
+                id, patient_id, prescription_id, sale_date, subtotal, discount_type,
+                discount_value, total, amount_paid, balance, status, notes, created_at,
+                tax_rate, tax_amount, timbre_amount, invoice_number
+              FROM sales;
+            DROP TABLE sales;
+            ALTER TABLE sales_new RENAME TO sales;
+            CREATE INDEX idx_sales_date ON sales(sale_date);
+            CREATE INDEX idx_sales_patient ON sales(patient_id);
+            CREATE UNIQUE INDEX idx_sales_invoice_number ON sales(invoice_number);
+
+            -- Restore the children the sales drop emptied via CASCADE.
+            INSERT INTO sale_items SELECT * FROM _v19_si;
+            INSERT INTO payments   SELECT * FROM _v19_pay;
+            INSERT INTO claims     SELECT * FROM _v19_clm;
+
+            -- Rebuild `jobs` with a nullable patient_id (walk-in lens orders), restoring
+            -- from the pre-drop snapshot so the original sale_id is preserved.
+            DROP TABLE jobs;
+            CREATE TABLE jobs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                sale_id         INTEGER REFERENCES sales(id) ON DELETE SET NULL,
+                patient_id      INTEGER REFERENCES patients(id) ON DELETE CASCADE,
+                prescription_id INTEGER REFERENCES prescriptions(id) ON DELETE SET NULL,
+                lab             TEXT,
+                status          TEXT NOT NULL DEFAULT 'ordered'
+                                 CHECK (status IN ('ordered','at_lab','edging','ready','collected')),
+                expected_ready  TEXT,
+                delivered_at    TEXT,
+                notes           TEXT,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            INSERT INTO jobs SELECT * FROM _v19_job;
+            CREATE INDEX idx_jobs_status ON jobs(status);
+            CREATE INDEX idx_jobs_patient ON jobs(patient_id);
+
+            -- Rebuild `credit_notes` with a nullable patient_id (walk-in returns); its
+            -- items were cascade-emptied by the drop, so restore them too.
+            DROP TABLE credit_notes;
+            CREATE TABLE credit_notes (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                sale_id    INTEGER REFERENCES sales(id) ON DELETE SET NULL,
+                patient_id INTEGER REFERENCES patients(id) ON DELETE CASCADE,
+                total      INTEGER NOT NULL DEFAULT 0,
+                method     TEXT NOT NULL CHECK (method IN ('refund','store_credit')),
+                notes      TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            INSERT INTO credit_notes SELECT * FROM _v19_cn;
+            CREATE INDEX idx_credit_notes_sale ON credit_notes(sale_id);
+            CREATE INDEX idx_credit_notes_patient ON credit_notes(patient_id);
+            INSERT INTO credit_note_items SELECT * FROM _v19_cni;
+
+            DROP TABLE _v19_si;
+            DROP TABLE _v19_pay;
+            DROP TABLE _v19_clm;
+            DROP TABLE _v19_job;
+            DROP TABLE _v19_cn;
+            DROP TABLE _v19_cni;
+
+            -- Parked carts. The cart is stored as a JSON snapshot (a mid-edit draft, not a
+            -- normalized order); restoring just rehydrates the client store. Holding never
+            -- touches stock — stock is validated/deducted only at real checkout.
+            CREATE TABLE held_sales (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                label       TEXT,
+                customer_id INTEGER REFERENCES patients(id) ON DELETE SET NULL, -- NULL = walk-in
+                payload     TEXT NOT NULL,            -- JSON cart snapshot
+                item_count  INTEGER NOT NULL DEFAULT 0,
+                total       REAL NOT NULL DEFAULT 0,  -- centimes, denormalized for the chip strip
+                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX idx_held_sales_updated ON held_sales(updated_at);
+
+            -- Starred products surfaced as a quick-filter in the POS catalog.
+            CREATE TABLE product_favorites (
+                product_id INTEGER PRIMARY KEY REFERENCES products(id) ON DELETE CASCADE,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+        "#,
+        },
+        // Fiscal compliance: issued invoices become immutable. `sales.status` gains
+        // a 'void' value (a cancelled-but-retained invoice keeps its number), and
+        // credit notes gain a sequential avoir number plus a 'balance' method (apply
+        // the credit to the sale's outstanding balance instead of refunding cash).
+        // `sale_items.unit_cost` snapshots COGS at sale time so margin reports don't
+        // drift when a product's purchase price is later overwritten. Both CHECK
+        // changes need a table rebuild (v19's defer_foreign_keys + snapshot pattern).
+        Migration {
+            version: 20,
+            description: "fiscal_void_and_avoir_numbering",
+            kind: MigrationKind::Up,
+            sql: r#"
+            PRAGMA defer_foreign_keys = ON;
+
+            -- Snapshot children the sales/credit_notes rebuilds would cascade/null.
+            CREATE TEMP TABLE _v20_si  AS SELECT * FROM sale_items;
+            CREATE TEMP TABLE _v20_pay AS SELECT * FROM payments;
+            CREATE TEMP TABLE _v20_clm AS SELECT * FROM claims;
+            CREATE TEMP TABLE _v20_cn  AS SELECT * FROM credit_notes;
+            CREATE TEMP TABLE _v20_cni AS SELECT * FROM credit_note_items;
+            CREATE TEMP TABLE _v20_job AS SELECT * FROM jobs;
+
+            -- Rebuild `sales` to widen the status CHECK and add the void columns.
+            CREATE TABLE sales_new (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id      INTEGER REFERENCES patients(id) ON DELETE RESTRICT,
+                prescription_id INTEGER REFERENCES prescriptions(id) ON DELETE SET NULL,
+                sale_date       TEXT NOT NULL DEFAULT (datetime('now')),
+                subtotal        REAL NOT NULL DEFAULT 0,
+                discount_type   TEXT NOT NULL DEFAULT 'amount' CHECK (discount_type IN ('amount','percent')),
+                discount_value  REAL NOT NULL DEFAULT 0,
+                total           REAL NOT NULL DEFAULT 0,
+                amount_paid     REAL NOT NULL DEFAULT 0,
+                balance         REAL NOT NULL DEFAULT 0,
+                status          TEXT NOT NULL DEFAULT 'unpaid' CHECK (status IN ('paid','partial','unpaid','void')),
+                notes           TEXT,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                tax_rate        INTEGER NOT NULL DEFAULT 0,
+                tax_amount      INTEGER NOT NULL DEFAULT 0,
+                timbre_amount   INTEGER NOT NULL DEFAULT 0,
+                invoice_number  TEXT,
+                voided_at       TEXT,
+                void_reason     TEXT
+            );
+            INSERT INTO sales_new (id, patient_id, prescription_id, sale_date, subtotal,
+                discount_type, discount_value, total, amount_paid, balance, status, notes,
+                created_at, tax_rate, tax_amount, timbre_amount, invoice_number)
+              SELECT id, patient_id, prescription_id, sale_date, subtotal, discount_type,
+                discount_value, total, amount_paid, balance, status, notes, created_at,
+                tax_rate, tax_amount, timbre_amount, invoice_number
+              FROM sales;
+            DROP TABLE sales;
+            ALTER TABLE sales_new RENAME TO sales;
+            CREATE INDEX idx_sales_date ON sales(sale_date);
+            CREATE INDEX idx_sales_patient ON sales(patient_id);
+            CREATE UNIQUE INDEX idx_sales_invoice_number ON sales(invoice_number);
+
+            -- Restore the children cascade-emptied by the sales drop.
+            INSERT INTO sale_items SELECT * FROM _v20_si;
+            INSERT INTO payments   SELECT * FROM _v20_pay;
+            INSERT INTO claims     SELECT * FROM _v20_clm;
+
+            -- Rebuild `credit_notes` to widen the method CHECK and add avoir numbering.
+            DROP TABLE credit_notes;
+            CREATE TABLE credit_notes (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                sale_id    INTEGER REFERENCES sales(id) ON DELETE SET NULL,
+                patient_id INTEGER REFERENCES patients(id) ON DELETE CASCADE,
+                total      INTEGER NOT NULL DEFAULT 0,
+                method     TEXT NOT NULL CHECK (method IN ('refund','store_credit','balance')),
+                cn_number  TEXT,
+                notes      TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            INSERT INTO credit_notes (id, sale_id, patient_id, total, method, notes, created_at)
+              SELECT id, sale_id, patient_id, total, method, notes, created_at FROM _v20_cn;
+            -- Backfill a sequential avoir number for historic credit notes.
+            UPDATE credit_notes SET cn_number = printf('A%06d', id) WHERE cn_number IS NULL;
+            CREATE INDEX idx_credit_notes_sale ON credit_notes(sale_id);
+            CREATE INDEX idx_credit_notes_patient ON credit_notes(patient_id);
+            CREATE UNIQUE INDEX idx_credit_notes_number ON credit_notes(cn_number)
+                WHERE cn_number IS NOT NULL AND cn_number <> '';
+            INSERT INTO credit_note_items SELECT * FROM _v20_cni;
+
+            -- The sales drop SET NULL'd jobs.sale_id; restore the original linkage.
+            UPDATE jobs SET sale_id = (SELECT sale_id FROM _v20_job j WHERE j.id = jobs.id);
+
+            DROP TABLE _v20_si;
+            DROP TABLE _v20_pay;
+            DROP TABLE _v20_clm;
+            DROP TABLE _v20_cn;
+            DROP TABLE _v20_cni;
+            DROP TABLE _v20_job;
+
+            -- COGS snapshot per sale line (centimes), captured at create_sale time.
+            ALTER TABLE sale_items ADD COLUMN unit_cost INTEGER NOT NULL DEFAULT 0;
+
+            -- Avoir (credit-note) numbering counter + format, mirroring invoice settings.
+            INSERT OR IGNORE INTO settings (key, value) VALUES
+                ('credit_note_prefix', 'A'),
+                ('credit_note_padding', '6');
+            INSERT OR IGNORE INTO settings (key, value)
+                SELECT 'credit_note_next', CAST(COALESCE(MAX(id), 0) + 1 AS TEXT) FROM credit_notes;
+        "#,
+        },
+        // Inventory integrity: products can be archived (soft-deleted) instead of hard
+        // deleted, so a discontinued item's stock-movement history and sales links are
+        // preserved. Archived products are hidden from catalogs/POS by default.
+        Migration {
+            version: 21,
+            description: "product_archive",
+            kind: MigrationKind::Up,
+            sql: r#"
+            ALTER TABLE products ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+            CREATE INDEX idx_products_archived ON products(archived);
+        "#,
+        },
+        // Clients & clinical: patients and prescriptions become soft-deletable (so
+        // medical records are never destroyed by a cascade), and prescriptions gain
+        // contact-lens fields (base curve + diameter per eye).
+        Migration {
+            version: 22,
+            description: "patient_rx_soft_delete_and_contact_lens",
+            kind: MigrationKind::Up,
+            sql: r#"
+            ALTER TABLE patients ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+            CREATE INDEX idx_patients_archived ON patients(archived);
+
+            ALTER TABLE prescriptions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE prescriptions ADD COLUMN r_bc REAL;
+            ALTER TABLE prescriptions ADD COLUMN l_bc REAL;
+            ALTER TABLE prescriptions ADD COLUMN r_dia REAL;
+            ALTER TABLE prescriptions ADD COLUMN l_dia REAL;
+        "#,
+        },
+        // Lightweight accountability + lab-stage history + auto-backup settings.
+        // Staff carry a role and an optional hashed PIN (verified in the app for
+        // protected actions); the active staff is chosen in the shell — there is no
+        // login wall. The audit_log is append-only (who/what/when), with a
+        // denormalized staff_name so records survive staff removal.
+        Migration {
+            version: 23,
+            description: "staff_audit_job_events",
+            kind: MigrationKind::Up,
+            sql: r#"
+            CREATE TABLE staff (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT NOT NULL,
+                role       TEXT NOT NULL DEFAULT 'staff'
+                           CHECK (role IN ('owner','optometrist','optician','cashier','staff')),
+                pin_hash   TEXT,
+                active     INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            INSERT INTO staff (name, role) VALUES ('Owner', 'owner');
+
+            CREATE TABLE audit_log (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                staff_id   INTEGER REFERENCES staff(id) ON DELETE SET NULL,
+                staff_name TEXT,
+                action     TEXT NOT NULL,
+                entity     TEXT,
+                entity_id  INTEGER,
+                detail     TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX idx_audit_created ON audit_log(created_at);
+
+            CREATE TABLE job_events (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id     INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+                status     TEXT NOT NULL,
+                note       TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX idx_job_events_job ON job_events(job_id);
+
+            INSERT OR IGNORE INTO settings (key, value) VALUES
+                ('manager_pin_hash', ''),
+                ('discount_pin_threshold', '2000'),
+                ('auto_backup_enabled', '0'),
+                ('auto_backup_interval_days', '1'),
+                ('auto_backup_keep', '14'),
+                ('last_auto_backup', '');
         "#,
         },
     ]

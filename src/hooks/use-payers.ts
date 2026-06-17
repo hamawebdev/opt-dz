@@ -22,7 +22,8 @@ export function useCreatePayer() {
 export function useUpdatePayer() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { id: number; input: PayerInput }) => updatePayer(args.id, args.input),
+    mutationFn: (args: { id: number; input: PayerInput }) =>
+      updatePayer(args.id, args.input),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["payers"] }),
   });
 }

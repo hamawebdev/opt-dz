@@ -49,16 +49,25 @@ export default function PatientStatementPrintPage() {
           size="sm"
           onClick={() => navigate(`/patients/${patientId}`)}
         >
-          <ArrowLeft className="me-1 size-4 rtl:rotate-180" /> {t("common.back")}
+          <ArrowLeft className="me-1 size-4 rtl:rotate-180" />{" "}
+          {t("common.back")}
         </Button>
         <div className="flex items-end gap-3">
           <div className="grid gap-1">
             <Label className="text-xs">{t("patients.addedFrom")}</Label>
-            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <Input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+            />
           </div>
           <div className="grid gap-1">
             <Label className="text-xs">{t("patients.addedTo")}</Label>
-            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+            <Input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+            />
           </div>
           <Button onClick={() => window.print()}>
             <Printer className="me-1 size-4" /> {t("sales.printSaveAsPdf")}
@@ -93,7 +102,9 @@ export default function PatientStatementPrintPage() {
           <div className="text-right">
             <h2 className="text-xl font-semibold">{t("statement.title")}</h2>
             {patient.code && <p className="text-gray-600">{patient.code}</p>}
-            <p className="text-gray-600">{formatDate(new Date().toISOString())}</p>
+            <p className="text-gray-600">
+              {formatDate(new Date().toISOString())}
+            </p>
           </div>
         </header>
 
@@ -103,7 +114,9 @@ export default function PatientStatementPrintPage() {
           </p>
           <p className="font-medium">{patient.full_name}</p>
           {patient.phone && <p className="text-gray-600">{patient.phone}</p>}
-          {patient.address && <p className="text-gray-600">{patient.address}</p>}
+          {patient.address && (
+            <p className="text-gray-600">{patient.address}</p>
+          )}
         </section>
 
         <table className="mb-6 w-full border-collapse">
@@ -149,11 +162,15 @@ export default function PatientStatementPrintPage() {
           <div className="mb-10 flex justify-end">
             <div className="w-72 space-y-1">
               <div className="flex justify-between">
-                <span className="text-gray-600">{t("statement.totalInvoiced")}</span>
+                <span className="text-gray-600">
+                  {t("statement.totalInvoiced")}
+                </span>
                 <span>{formatDZD(statement.total_debit, symbol)}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-600">{t("statement.totalPaid")}</span>
+                <span className="text-gray-600">
+                  {t("statement.totalPaid")}
+                </span>
                 <span>{formatDZD(statement.total_credit, symbol)}</span>
               </div>
               <div className="flex justify-between border-t pt-1 text-base font-bold">

@@ -26,7 +26,11 @@ interface DeliveryDialogProps {
 }
 
 /** Records a supplier delivery for a product (adds stock + logs a movement). */
-export function DeliveryDialog({ product, open, onOpenChange }: DeliveryDialogProps) {
+export function DeliveryDialog({
+  product,
+  open,
+  onOpenChange,
+}: DeliveryDialogProps) {
   const { t } = useTranslation();
   // Seeded from props on mount; parent remounts via `key` when the product changes.
   const [quantity, setQuantity] = useState("");
@@ -54,7 +58,8 @@ export function DeliveryDialog({ product, open, onOpenChange }: DeliveryDialogPr
       toast.error(t("delivery.enterQtyGt0"));
       return;
     }
-    const price = purchasePrice.trim() === "" ? null : toCentimes(purchasePrice);
+    const price =
+      purchasePrice.trim() === "" ? null : toCentimes(purchasePrice);
     // Book the delivery as a debt to the chosen supplier (qty × unit cost).
     const debtAmount = price != null ? price * qty : null;
     try {
@@ -102,7 +107,9 @@ export function DeliveryDialog({ product, open, onOpenChange }: DeliveryDialogPr
             />
           </div>
           <div className="grid gap-1.5">
-            <Label htmlFor="del_price">{t("delivery.purchasePriceOptional")}</Label>
+            <Label htmlFor="del_price">
+              {t("delivery.purchasePriceOptional")}
+            </Label>
             <Input
               id="del_price"
               type="number"

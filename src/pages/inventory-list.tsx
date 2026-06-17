@@ -1,7 +1,14 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Plus, Search, Pencil, Trash2, PackagePlus, Barcode } from "lucide-react";
+import {
+  Plus,
+  Search,
+  Pencil,
+  Trash2,
+  PackagePlus,
+  Barcode,
+} from "lucide-react";
 import { toast } from "sonner";
 import { notifyError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
@@ -31,7 +38,7 @@ import { DeliveryDialog } from "@/components/delivery-dialog";
 import { BarcodeLabelDialog } from "@/components/barcode-label-dialog";
 import {
   useBrands,
-  useDeleteProduct,
+  useArchiveProduct,
   useProducts,
 } from "@/hooks/use-inventory";
 import { useFilterableAttributes } from "@/hooks/use-attributes";
@@ -82,13 +89,13 @@ export default function InventoryListPage() {
   const { data: primaryImages } = usePrimaryImages();
   const { data: settings } = useSettings();
   const symbol = settings?.currency_symbol;
-  const del = useDeleteProduct();
+  const archive = useArchiveProduct();
 
   async function handleDelete() {
     if (toDelete == null) return;
     try {
-      await del.mutateAsync(toDelete);
-      toast.success(t("inventory.productDeleted"));
+      await archive.mutateAsync(toDelete);
+      toast.success(t("inventory.productArchived"));
     } catch (err) {
       notifyError(err, t("problem.actionFailed"));
     } finally {
@@ -137,8 +144,12 @@ export default function InventoryListPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">{t("common.all")}</SelectItem>
-            <SelectItem value="product">{t("inventory.typeProduct")}</SelectItem>
-            <SelectItem value="service">{t("inventory.typeService")}</SelectItem>
+            <SelectItem value="product">
+              {t("inventory.typeProduct")}
+            </SelectItem>
+            <SelectItem value="service">
+              {t("inventory.typeService")}
+            </SelectItem>
           </SelectContent>
         </Select>
         <Select value={brand} onValueChange={setBrand}>
@@ -306,7 +317,7 @@ export default function InventoryListPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          aria-label={t("common.delete")}
+                          aria-label={t("inventory.archive")}
                           onClick={() => setToDelete(p.id)}
                         >
                           <Trash2 className="text-destructive size-4" />
@@ -336,9 +347,9 @@ export default function InventoryListPage() {
       <ConfirmDialog
         open={toDelete != null}
         onOpenChange={(o) => !o && setToDelete(null)}
-        title={t("inventory.deleteTitle")}
-        description={t("inventory.deleteDesc")}
-        confirmText={t("common.delete")}
+        title={t("inventory.archiveTitle")}
+        description={t("inventory.archiveDesc")}
+        confirmText={t("inventory.archive")}
         onConfirm={handleDelete}
       />
     </div>

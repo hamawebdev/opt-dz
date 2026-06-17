@@ -7,6 +7,7 @@ import {
   FlaskConical,
   Scissors,
   PackageCheck,
+  Ban,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
@@ -66,7 +67,11 @@ export function JobStatusPill({ status }: { status: JobStatus }) {
   const { t } = useTranslation();
   const meta = JOB_META[status];
   return (
-    <StatusPill tone={meta.tone} icon={meta.icon} label={t(`jobStatus.${status}`)} />
+    <StatusPill
+      tone={meta.tone}
+      icon={meta.icon}
+      label={t(`jobStatus.${status}`)}
+    />
   );
 }
 
@@ -74,12 +79,17 @@ const SALE_META: Record<SaleStatus, { tone: StatusTone; icon: LucideIcon }> = {
   paid: { tone: "success", icon: CheckCircle2 },
   partial: { tone: "warning", icon: Clock },
   unpaid: { tone: "danger", icon: AlertCircle },
+  void: { tone: "neutral", icon: Ban },
 };
 
 export function SaleStatusPill({ status }: { status: SaleStatus }) {
   const { t } = useTranslation();
   const meta = SALE_META[status];
   return (
-    <StatusPill tone={meta.tone} icon={meta.icon} label={t(`saleStatus.${status}`)} />
+    <StatusPill
+      tone={meta.tone}
+      icon={meta.icon}
+      label={t(`saleStatus.${status}`)}
+    />
   );
 }

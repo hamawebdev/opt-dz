@@ -20,12 +20,14 @@ import { formatDate } from "@/lib/format";
 import { daysUntil, expiryStatus, type ExpiryStatus } from "@/lib/expiry";
 import type { Product } from "@/types";
 
-const badgeVariant: Record<ExpiryStatus, "destructive" | "secondary" | "outline"> =
-  {
-    expired: "destructive",
-    soon: "secondary",
-    ok: "outline",
-  };
+const badgeVariant: Record<
+  ExpiryStatus,
+  "destructive" | "secondary" | "outline"
+> = {
+  expired: "destructive",
+  soon: "secondary",
+  ok: "outline",
+};
 
 export default function TrackingProductsPage() {
   const { t } = useTranslation();
@@ -54,7 +56,7 @@ export default function TrackingProductsPage() {
       <div className="flex flex-wrap gap-3">
         {(["expired", "soon", "ok"] as ExpiryStatus[]).map((s) => (
           <Card key={s} className="flex-1 p-4">
-            <div className="text-muted-foreground text-xs uppercase tracking-wide">
+            <div className="text-muted-foreground text-xs tracking-wide uppercase">
               {t(`tracking.${s}`)}
             </div>
             <div className="mt-1 text-2xl font-semibold tabular-nums">
@@ -75,7 +77,9 @@ export default function TrackingProductsPage() {
               <TableHead>{t("common.name")}</TableHead>
               <TableHead>{t("common.brand")}</TableHead>
               <TableHead>{t("inventory.expiryDate")}</TableHead>
-              <TableHead className="text-right">{t("inventory.stock")}</TableHead>
+              <TableHead className="text-right">
+                {t("inventory.stock")}
+              </TableHead>
               <TableHead>{t("common.status")}</TableHead>
               <TableHead className="w-10" />
             </TableRow>
@@ -137,13 +141,18 @@ function ExpiryRow({
             : t("tracking.daysLeft", { days })}
         </span>
       </TableCell>
-      <TableCell className="text-right tabular-nums">{product.quantity}</TableCell>
+      <TableCell className="text-right tabular-nums">
+        {product.quantity}
+      </TableCell>
       <TableCell>
         <Badge variant={badgeVariant[status]}>{t(`tracking.${status}`)}</Badge>
       </TableCell>
       <TableCell>
         <Button variant="ghost" size="icon" asChild>
-          <Link to={`/inventory/${product.id}/edit`} aria-label={t("common.edit")}>
+          <Link
+            to={`/inventory/${product.id}/edit`}
+            aria-label={t("common.edit")}
+          >
             <Pencil className="size-4" />
           </Link>
         </Button>

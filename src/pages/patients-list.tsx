@@ -33,7 +33,7 @@ import {
   facetSelectionToFilters,
   type FacetSelection,
 } from "@/components/facet-filters";
-import { useDeletePatient, usePatients } from "@/hooks/use-patients";
+import { useArchivePatient, usePatients } from "@/hooks/use-patients";
 import { usePatientFacetAttributes } from "@/hooks/use-attributes";
 import { formatDate } from "@/lib/format";
 
@@ -57,14 +57,14 @@ export default function PatientsListPage() {
   );
   const patientsQuery = usePatients(filters);
   const { data: patients, isLoading } = patientsQuery;
-  const del = useDeletePatient();
+  const del = useArchivePatient();
   const navigate = useNavigate();
 
   async function handleDelete() {
     if (toDelete == null) return;
     try {
       await del.mutateAsync(toDelete);
-      toast.success(t("patients.deleted"));
+      toast.success(t("patients.archived"));
     } catch (err) {
       notifyError(err, t("problem.actionFailed"));
     } finally {
@@ -267,9 +267,9 @@ export default function PatientsListPage() {
       <ConfirmDialog
         open={toDelete != null}
         onOpenChange={(o) => !o && setToDelete(null)}
-        title={t("patients.deleteTitle")}
-        description={t("patients.deleteDesc")}
-        confirmText={t("common.delete")}
+        title={t("patients.archiveTitle")}
+        description={t("patients.archiveDesc")}
+        confirmText={t("patients.archive")}
         onConfirm={handleDelete}
       />
     </div>

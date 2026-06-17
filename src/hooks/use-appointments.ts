@@ -44,7 +44,9 @@ export function useCreateAppointment() {
     mutationFn: (input: AppointmentInput) => createAppointment(input),
     onSuccess: (id, input) => {
       void logActivity(input.patient_id, "appointment", input.starts_at, id);
-      qc.invalidateQueries({ queryKey: ["patient-activity", input.patient_id] });
+      qc.invalidateQueries({
+        queryKey: ["patient-activity", input.patient_id],
+      });
       invalidate(qc);
     },
   });

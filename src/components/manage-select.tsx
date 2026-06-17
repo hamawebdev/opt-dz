@@ -96,7 +96,9 @@ export function ManageSelect({
           )}
         >
           <span className="truncate">
-            {selected ? selected.label : (placeholder ?? t("searchSelect.select"))}
+            {selected
+              ? selected.label
+              : (placeholder ?? t("searchSelect.select"))}
           </span>
           <ChevronsUpDown className="ms-2 size-4 shrink-0 opacity-50" />
         </Button>
@@ -135,7 +137,9 @@ export function ManageSelect({
                   setOpen(false);
                 }}
               >
-                <span className="text-muted-foreground">{t("common.none")}</span>
+                <span className="text-muted-foreground">
+                  {t("common.none")}
+                </span>
               </CommandItem>
             )}
             <CommandGroup>

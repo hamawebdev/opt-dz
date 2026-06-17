@@ -21,8 +21,12 @@ import {
   Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAppStore } from "@/store/use-app-store";
 import { useSaveSettings, useSettings } from "@/hooks/use-settings";
+import { listStaff, createStaff } from "@/db/staff";
+import { listAudit } from "@/db/audit";
+import { setManagerPin } from "@/lib/auth";
 import {
   useBrandRows,
   useCategories,
@@ -40,7 +44,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { notifyError } from "@/lib/errors";
 import { getDb, unwrap } from "@/lib/db";
 import { commands } from "@/lib/bindings";
-import { toCentimes, fromCentimes } from "@/lib/format";
+import { toCentimes, fromCentimes, formatDateTime } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -53,8 +57,16 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import type { ShopSettings } from "@/types";
+import type { ShopSettings, StaffRole } from "@/types";
 import { SUPPORTED_LANGUAGES, type Language } from "@/lib/i18n";
+
+const STAFF_ROLES: StaffRole[] = [
+  "owner",
+  "optometrist",
+  "optician",
+  "cashier",
+  "staff",
+];
 
 const themes = ["light", "dark", "system"] as const;
 const themeLabelKey: Record<(typeof themes)[number], string> = {
@@ -141,6 +153,8 @@ export default function SettingsPage() {
       {settings && <RemindersSettings settings={settings} />}
 
       {settings && <DataBackupSection settings={settings} />}
+
+      {settings && <StaffSecuritySection settings={settings} />}
 
       {import.meta.env.DEV && <DemoDataSection />}
 
@@ -708,7 +722,7 @@ function DataBackupSection({ settings }: { settings: ShopSettings }) {
           : kind === "products"
             ? "SELECT * FROM products ORDER BY id"
             : `SELECT s.*, p.full_name AS patient_name
-               FROM sales s JOIN patients p ON p.id = s.patient_id ORDER BY s.id`;
+               FROM sales s LEFT JOIN patients p ON p.id = s.patient_id ORDER BY s.id`;
       const rows = await db.select<Record<string, unknown>[]>(query);
       if (!rows.length) {
         toast.info(t("settings.noToExport", { kind: t(`dataKind.${kind}`) }));
@@ -818,7 +832,8 @@ function DemoDataSection() {
   }
 
   async function wipe() {
-    if (!window.confirm("Delete ALL seeded data (patients, products, sales…)?")) return;
+    if (!window.confirm("Delete ALL seeded data (patients, products, sales…)?"))
+      return;
     setBusy("clear");
     try {
       const { clearSeedData } = await import("@/db/seed");
@@ -1007,6 +1022,215 @@ function ShopInfoForm({ initial }: { initial: ShopSettings }) {
           <Button onClick={handleSave} disabled={save.isPending}>
             {t("settings.saveSettings")}
           </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Lightweight accountability: who is at the till (stamped onto the audit log), the
+ * manager PIN that gates sensitive actions, automatic backups, and the audit trail. */
+function StaffSecuritySection({ settings }: { settings: ShopSettings }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const save = useSaveSettings();
+  const currentStaffId = useAppStore((s) => s.currentStaffId);
+  const setCurrentStaff = useAppStore((s) => s.setCurrentStaff);
+
+  const { data: staff } = useQuery({
+    queryKey: ["staff"],
+    queryFn: () => listStaff(),
+  });
+  const { data: audit } = useQuery({
+    queryKey: ["audit"],
+    queryFn: () => listAudit(20),
+  });
+
+  const [newName, setNewName] = useState("");
+  const [newRole, setNewRole] = useState<StaffRole>("staff");
+  const [pin, setPin] = useState("");
+  const [autoBackup, setAutoBackup] = useState(
+    settings.auto_backup_enabled === "1",
+  );
+  const [backupInterval, setBackupInterval] = useState(
+    settings.auto_backup_interval_days,
+  );
+  const pinSet = !!settings.manager_pin_hash;
+
+  async function addStaff() {
+    if (!newName.trim()) return;
+    try {
+      await createStaff({ name: newName.trim(), role: newRole });
+      setNewName("");
+      setNewRole("staff");
+      qc.invalidateQueries({ queryKey: ["staff"] });
+      toast.success(t("staff.added"));
+    } catch (err) {
+      notifyError(err, t("problem.saveFailed"));
+    }
+  }
+
+  async function savePin() {
+    try {
+      await setManagerPin(pin);
+      const had = pin.trim();
+      setPin("");
+      qc.invalidateQueries({ queryKey: ["settings"] });
+      toast.success(had ? t("staff.pinSet") : t("staff.pinCleared"));
+    } catch (err) {
+      notifyError(err, t("problem.saveFailed"));
+    }
+  }
+
+  async function saveBackup() {
+    try {
+      await save.mutateAsync({
+        auto_backup_enabled: autoBackup ? "1" : "0",
+        auto_backup_interval_days: String(
+          Math.max(1, Math.floor(Number(backupInterval) || 1)),
+        ),
+      });
+      toast.success(t("staff.backupSaved"));
+    } catch (err) {
+      notifyError(err, t("problem.saveFailed"));
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("staff.title")}</CardTitle>
+        <CardDescription>{t("staff.desc")}</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        <div className="space-y-2">
+          <Label>{t("staff.current")}</Label>
+          <div className="flex flex-wrap gap-2">
+            {(staff ?? []).map((s) => (
+              <Button
+                key={s.id}
+                variant={currentStaffId === s.id ? "default" : "outline"}
+                size="sm"
+                onClick={() => setCurrentStaff(s.id, s.name)}
+              >
+                {s.name}
+                <Badge variant="secondary" className="ms-1">
+                  {t(`staffRole.${s.role}`)}
+                </Badge>
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+          <div className="grid gap-1.5">
+            <Label htmlFor="staff_name">{t("staff.addName")}</Label>
+            <Input
+              id="staff_name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="staff_role">{t("staff.role")}</Label>
+            <select
+              id="staff_role"
+              className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+              value={newRole}
+              onChange={(e) => setNewRole(e.target.value as StaffRole)}
+            >
+              {STAFF_ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {t(`staffRole.${r}`)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Button variant="outline" onClick={addStaff}>
+            <Plus className="size-4" /> {t("staff.add")}
+          </Button>
+        </div>
+
+        <div className="grid gap-1.5">
+          <Label htmlFor="mgr_pin">
+            {t("staff.managerPin")}{" "}
+            <Badge variant={pinSet ? "default" : "secondary"}>
+              {pinSet ? t("staff.pinOn") : t("staff.pinOff")}
+            </Badge>
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              id="mgr_pin"
+              type="password"
+              inputMode="numeric"
+              value={pin}
+              onChange={(e) => setPin(e.target.value)}
+              placeholder={t("staff.pinPlaceholder")}
+            />
+            <Button variant="outline" onClick={savePin}>
+              {t("common.save")}
+            </Button>
+          </div>
+          <p className="text-muted-foreground text-xs">{t("staff.pinHint")}</p>
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label htmlFor="auto_backup">{t("staff.autoBackup")}</Label>
+            <Switch
+              id="auto_backup"
+              checked={autoBackup}
+              onCheckedChange={setAutoBackup}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="backup_interval">{t("staff.backupInterval")}</Label>
+            <Input
+              id="backup_interval"
+              type="number"
+              min="1"
+              value={backupInterval}
+              onChange={(e) => setBackupInterval(e.target.value)}
+              className="w-28"
+            />
+          </div>
+          <p className="text-muted-foreground text-xs">
+            {t("staff.backupHint")}
+          </p>
+          <div className="flex justify-end">
+            <Button onClick={saveBackup} disabled={save.isPending}>
+              {t("common.save")}
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>{t("staff.auditLog")}</Label>
+          {!audit?.length ? (
+            <p className="text-muted-foreground text-sm">
+              {t("staff.auditEmpty")}
+            </p>
+          ) : (
+            <div className="max-h-56 space-y-1 overflow-auto text-sm">
+              {audit.map((a) => (
+                <div
+                  key={a.id}
+                  className="flex justify-between gap-2 border-b py-1 last:border-0"
+                >
+                  <span>
+                    <span className="font-medium">{a.action}</span>
+                    {a.entity
+                      ? ` · ${a.entity}${a.entity_id != null ? ` #${a.entity_id}` : ""}`
+                      : ""}
+                    {a.staff_name ? ` · ${a.staff_name}` : ""}
+                  </span>
+                  <span className="text-muted-foreground whitespace-nowrap">
+                    {formatDateTime(a.created_at)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

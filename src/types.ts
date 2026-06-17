@@ -12,8 +12,13 @@ export type ProductCategory = "frame" | "lens" | "accessory";
 export type ItemType = "product" | "service";
 export type StockMovementType = "delivery" | "sale" | "adjustment";
 export type DiscountType = "amount" | "percent";
-export type SaleStatus = "paid" | "partial" | "unpaid";
-export type ClaimStatus = "pending" | "submitted" | "partial" | "paid" | "rejected";
+export type SaleStatus = "paid" | "partial" | "unpaid" | "void";
+export type ClaimStatus =
+  | "pending"
+  | "submitted"
+  | "partial"
+  | "paid"
+  | "rejected";
 export type JobStatus = "ordered" | "at_lab" | "edging" | "ready" | "collected";
 
 export interface Patient {
@@ -36,16 +41,23 @@ export interface Patient {
   /** Base64 data-URI avatar (same approach as the shop logo). */
   photo: string | null;
   notes: string | null;
+  /** Soft-delete flag: archived patients are hidden from lists but keep all history. */
+  archived: number;
   created_at: string;
   updated_at: string;
 }
 
+export type CreditNoteMethod = "refund" | "store_credit" | "balance";
+
 export interface CreditNote {
   id: number;
   sale_id: number | null;
-  patient_id: number;
-  total: number; // centimes refunded
-  method: string; // always "refund"
+  patient_id: number | null; // null for a walk-in return
+  total: number; // centimes credited (customer's net portion)
+  /** 'refund' = cash back; 'balance' = applied to the sale's outstanding balance. */
+  method: CreditNoteMethod;
+  /** Sequential avoir number (e.g. "A000123"). */
+  cn_number: string | null;
   notes: string | null;
   created_at: string;
 }
@@ -71,9 +83,15 @@ export interface Prescription {
   l_prism: number | null;
   l_base: string | null;
   l_seg_height: number | null;
+  /** Contact-lens parameters (base curve + diameter, mm), per eye. */
+  r_bc: number | null;
+  l_bc: number | null;
+  r_dia: number | null;
+  l_dia: number | null;
   prescriber: string | null;
   expiry_date: string | null;
   notes: string | null;
+  archived: number;
   created_at: string;
 }
 
@@ -103,6 +121,8 @@ export interface Product {
   /** Centralized colour reference (simple products). Variant products carry colour
    * per row on product_variants instead. */
   color_id: number | null;
+  /** Soft-delete flag: archived products are hidden from catalogs/POS but keep history. */
+  archived: number;
   created_at: string;
   updated_at: string;
 }
@@ -224,7 +244,7 @@ export interface ProductImage {
 
 export interface Sale {
   id: number;
-  patient_id: number;
+  patient_id: number | null; // null for walk-in / quick sales
   prescription_id: number | null;
   sale_date: string;
   subtotal: number;
@@ -240,6 +260,9 @@ export interface Sale {
   status: SaleStatus;
   notes: string | null;
   created_at: string;
+  /** Set when the invoice is voided (retained, never deleted). */
+  voided_at: string | null;
+  void_reason: string | null;
 }
 
 export interface SaleItem {
@@ -251,6 +274,8 @@ export interface SaleItem {
   quantity: number;
   item_discount: number;
   line_total: number;
+  /** COGS snapshot at sale time (centimes), for margin reports. */
+  unit_cost: number;
 }
 
 export interface Payment {
@@ -263,8 +288,9 @@ export interface Payment {
 }
 
 // A sale joined with the patient name, used in list views.
+// `patient_name` is null for walk-in / quick sales (no registered customer).
 export interface SaleWithPatient extends Sale {
-  patient_name: string;
+  patient_name: string | null;
 }
 
 export interface Payer {
@@ -315,6 +341,46 @@ export interface Job {
 export interface JobRow extends Job {
   patient_name: string;
   invoice_number: string | null;
+  /** 1 when not collected and the expected-ready date has passed. */
+  overdue?: number;
+}
+
+/** One stage change in a lab job's history. */
+export interface JobEvent {
+  id: number;
+  job_id: number;
+  status: JobStatus;
+  note: string | null;
+  created_at: string;
+}
+
+export type StaffRole =
+  | "owner"
+  | "optometrist"
+  | "optician"
+  | "cashier"
+  | "staff";
+
+/** A staff member (lightweight accountability). `pin_hash` gates protected actions. */
+export interface Staff {
+  id: number;
+  name: string;
+  role: StaffRole;
+  pin_hash: string | null;
+  active: number;
+  created_at: string;
+}
+
+/** One append-only audit-trail entry (who did what, when). */
+export interface AuditLogEntry {
+  id: number;
+  staff_id: number | null;
+  staff_name: string | null;
+  action: string;
+  entity: string | null;
+  entity_id: number | null;
+  detail: string | null;
+  created_at: string;
 }
 
 export type ActivityType =
@@ -431,6 +497,10 @@ export interface ShopSettings {
   timbre_max: string; // maximum timbre, centimes (0 = no cap)
   invoice_prefix: string; // optional invoice-number prefix
   invoice_padding: string; // zero-pad width for the sequence
+  // Credit-note (avoir) numbering, mirroring the invoice sequence.
+  credit_note_prefix: string;
+  credit_note_padding: string;
+  credit_note_next: string;
   // Thermal receipt printer.
   receipt_target: string; // device path / queue (e.g. /dev/usb/lp0); empty = disabled
   receipt_width: string; // characters per line (80mm ≈ 48)
@@ -446,6 +516,15 @@ export interface ShopSettings {
   receipt_config: string;
   // JSON blob (see LabelConfig) holding the last-used barcode-label design.
   label_config: string;
+  // Accountability: SHA-256 hash of the manager PIN (empty = no gate) and the discount
+  // threshold (basis points) above which a discount needs manager approval.
+  manager_pin_hash: string;
+  discount_pin_threshold: string;
+  // Scheduled automatic backups.
+  auto_backup_enabled: string; // "0" | "1"
+  auto_backup_interval_days: string;
+  auto_backup_keep: string; // how many backup files to retain
+  last_auto_backup: string; // ISO datetime of the last successful auto-backup
 }
 
 /** Parsed shape of `ShopSettings.receipt_config` (stored as JSON text). */

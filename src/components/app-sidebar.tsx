@@ -5,6 +5,7 @@ import {
   Users,
   Package,
   ShoppingCart,
+  Zap,
   Hammer,
   ShieldCheck,
   BarChart3,
@@ -42,6 +43,7 @@ interface NavItem {
 // The handful of things a daily user touches — kept first and always visible.
 const dailyItems: NavItem[] = [
   { to: "/", labelKey: "nav.dashboard", icon: LayoutDashboard, end: true },
+  { to: "/pos", labelKey: "nav.pos", icon: Zap },
   { to: "/patients", labelKey: "nav.patients", icon: Users },
   { to: "/sales", labelKey: "nav.sales", icon: ShoppingCart },
   { to: "/appointments", labelKey: "nav.appointments", icon: CalendarDays },
@@ -52,9 +54,19 @@ const dailyItems: NavItem[] = [
 // Advanced / back-office areas. `Hourglass` (not a second calendar) keeps
 // Tracking visually distinct from Appointments.
 const manageItems: NavItem[] = [
-  { to: "/tracking", labelKey: "nav.tracking", icon: Hourglass, advanced: true },
+  {
+    to: "/tracking",
+    labelKey: "nav.tracking",
+    icon: Hourglass,
+    advanced: true,
+  },
   { to: "/suppliers", labelKey: "nav.suppliers", icon: Truck, advanced: true },
-  { to: "/insurance", labelKey: "nav.insurance", icon: ShieldCheck, advanced: true },
+  {
+    to: "/insurance",
+    labelKey: "nav.insurance",
+    icon: ShieldCheck,
+    advanced: true,
+  },
   { to: "/reports", labelKey: "nav.reports", icon: BarChart3, advanced: true },
   { to: "/settings", labelKey: "nav.settings", icon: Settings },
 ];

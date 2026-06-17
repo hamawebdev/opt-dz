@@ -33,10 +33,14 @@ export async function listVariants(
   );
 }
 
+/** A variant row joined to its parent product's name + base price (sales picker / POS). */
+export type SellableVariant = ProductVariant & {
+  product_name: string;
+  product_price: number;
+};
+
 /** Variants joined to their parent product name + price, for the sales picker. */
-export async function listSellableVariants(): Promise<
-  (ProductVariant & { product_name: string; product_price: number })[]
-> {
+export async function listSellableVariants(): Promise<SellableVariant[]> {
   const db = await getDb();
   return db.select(
     `SELECT v.*, ${COLOR_COLS}, p.name AS product_name, p.selling_price AS product_price
@@ -70,6 +74,13 @@ export async function createVariant(
       input.purchase_price ?? null,
     ],
   );
+  // Record any opening stock as a delivery movement so the variant ledger stays complete.
+  if (res.lastInsertId && input.quantity > 0) {
+    await db.execute(
+      "INSERT INTO stock_movements (product_id, variant_id, type, quantity_change, note) VALUES ($1, $2, 'delivery', $3, 'Initial stock')",
+      [productId, res.lastInsertId, input.quantity],
+    );
+  }
   return res.lastInsertId ?? 0;
 }
 
@@ -78,13 +89,16 @@ export async function updateVariant(
   input: VariantInput,
 ): Promise<void> {
   const db = await getDb();
+  // `quantity` is intentionally NOT written here — variant on-hand is owned by the
+  // movement ledger (recordVariantDelivery/recordVariantAdjustment), never blind-written
+  // from the editor (audit finding A5/C1). Descriptive fields and threshold only.
   await db.execute(
     `UPDATE product_variants
      SET label = $1, color_id = $2, color = (SELECT name FROM colors WHERE id = $3),
          size = $4, sku = $5, barcode = $6,
-         quantity = $7, min_stock = $8, selling_price = $9, purchase_price = $10,
+         min_stock = $7, selling_price = $8, purchase_price = $9,
          updated_at = datetime('now')
-     WHERE id = $11`,
+     WHERE id = $10`,
     [
       input.label ?? null,
       input.color_id ?? null,
@@ -92,7 +106,6 @@ export async function updateVariant(
       input.size ?? null,
       input.sku ?? null,
       input.barcode ?? null,
-      input.quantity,
       input.min_stock,
       input.selling_price ?? null,
       input.purchase_price ?? null,

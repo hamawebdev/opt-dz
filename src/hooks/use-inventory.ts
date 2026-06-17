@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createProduct,
-  deleteProduct,
+  archiveProduct,
   getProduct,
   listBrands,
   listLowStock,
@@ -11,11 +11,7 @@ import {
   type ProductFilters,
   type ProductInput,
 } from "@/db/products";
-import {
-  listMovements,
-  recordAdjustment,
-  recordDelivery,
-} from "@/db/stock";
+import { listMovements, recordAdjustment, recordDelivery } from "@/db/stock";
 
 export const productKeys = {
   all: ["products"] as const,
@@ -81,10 +77,10 @@ export function useUpdateProduct() {
   });
 }
 
-export function useDeleteProduct() {
+export function useArchiveProduct() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => deleteProduct(id),
+    mutationFn: (id: number) => archiveProduct(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: productKeys.all }),
   });
 }
@@ -111,8 +107,11 @@ export function useRecordDelivery() {
 export function useRecordAdjustment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { productId: number; quantityChange: number; note?: string | null }) =>
-      recordAdjustment(args),
+    mutationFn: (args: {
+      productId: number;
+      quantityChange: number;
+      note?: string | null;
+    }) => recordAdjustment(args),
     onSuccess: () => qc.invalidateQueries({ queryKey: productKeys.all }),
   });
 }

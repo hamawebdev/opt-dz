@@ -24,7 +24,9 @@ export async function listColors(includeArchived = false): Promise<Color[]> {
 
 export async function getColor(id: number): Promise<Color | null> {
   const db = await getDb();
-  const rows = await db.select<Color[]>("SELECT * FROM colors WHERE id = $1", [id]);
+  const rows = await db.select<Color[]>("SELECT * FROM colors WHERE id = $1", [
+    id,
+  ]);
   return rows[0] ?? null;
 }
 
@@ -44,7 +46,10 @@ export async function createColor(input: ColorInput): Promise<number> {
   return res.lastInsertId ?? 0;
 }
 
-export async function updateColor(id: number, input: ColorInput): Promise<void> {
+export async function updateColor(
+  id: number,
+  input: ColorInput,
+): Promise<void> {
   const db = await getDb();
   await db.execute(
     `UPDATE colors
@@ -77,7 +82,10 @@ export async function setColorArchived(
  * denormalized variant colour mirror, moves aliases, then archives the source.
  * The long-term answer to any duplication that slips in. Transactional.
  */
-export async function mergeColor(fromId: number, intoId: number): Promise<void> {
+export async function mergeColor(
+  fromId: number,
+  intoId: number,
+): Promise<void> {
   if (fromId === intoId) return;
   const db = await getDb();
   await db.execute("BEGIN");
@@ -191,10 +199,12 @@ export async function resolveColorReview(
   await db.execute("BEGIN");
   try {
     const name =
-      (await db.select<{ name: string }[]>(
-        "SELECT name FROM colors WHERE id = $1",
-        [colorId],
-      ))[0]?.name ?? null;
+      (
+        await db.select<{ name: string }[]>(
+          "SELECT name FROM colors WHERE id = $1",
+          [colorId],
+        )
+      )[0]?.name ?? null;
     for (const r of rows) {
       if (r.source === "product") {
         await db.execute("UPDATE products SET color_id = $1 WHERE id = $2", [

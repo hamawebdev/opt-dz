@@ -314,9 +314,7 @@ export function BarcodeLabelDialog({
           <Button variant="outline" onClick={() => printJob(1)}>
             {t("barcode.printSingle")}
           </Button>
-          <Button
-            onClick={() => printJob(Math.max(1, Number(copies) || 1))}
-          >
+          <Button onClick={() => printJob(Math.max(1, Number(copies) || 1))}>
             {t("barcode.printSheet")}
           </Button>
         </div>

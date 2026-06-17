@@ -26,6 +26,7 @@ import {
   useCreateAppointment,
   useUpdateAppointment,
 } from "@/hooks/use-appointments";
+import { findAppointmentConflicts } from "@/db/appointments";
 import type { Appointment } from "@/types";
 
 interface AppointmentDialogProps {
@@ -116,6 +117,21 @@ export function AppointmentDialog({
       reason: reason.trim() || null,
       notes: notes.trim() || null,
     };
+    // Soft double-booking warning: same optometrist, overlapping slot (G2). Non-blocking.
+    const conflicts = await findAppointmentConflicts({
+      startsAt: input.starts_at,
+      durationMin: input.duration_min,
+      optometrist: input.optometrist,
+      excludeId: isEdit ? appointment.id : undefined,
+    });
+    if (conflicts.length) {
+      toast.warning(
+        t("appointments.conflictWarning", {
+          name: conflicts[0].patient_name,
+          time: conflicts[0].starts_at.split(/[ T]/)[1] ?? "",
+        }),
+      );
+    }
     try {
       if (isEdit) {
         await update.mutateAsync({ id: appointment.id, input });

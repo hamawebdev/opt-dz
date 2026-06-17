@@ -29,8 +29,11 @@ function invalidateClaims(qc: ReturnType<typeof useQueryClient>) {
 export function useUpdateClaimStatus() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { id: number; status: ClaimStatus; claimRef?: string | null }) =>
-      updateClaimStatus(args.id, args.status, args.claimRef),
+    mutationFn: (args: {
+      id: number;
+      status: ClaimStatus;
+      claimRef?: string | null;
+    }) => updateClaimStatus(args.id, args.status, args.claimRef),
     onSuccess: () => invalidateClaims(qc),
   });
 }
@@ -38,7 +41,8 @@ export function useUpdateClaimStatus() {
 export function useRecordClaimPayment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { id: number; amount: number }) => recordClaimPayment(args.id, args.amount),
+    mutationFn: (args: { id: number; amount: number }) =>
+      recordClaimPayment(args.id, args.amount),
     onSuccess: () => invalidateClaims(qc),
   });
 }

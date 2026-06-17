@@ -12,10 +12,12 @@ export interface TaxConfig {
   timbreMax: number; // centimes (0 = no cap)
 }
 
-export function taxConfig(settings?: Pick<
-  ShopSettings,
-  "tva_rate" | "timbre_rate" | "timbre_min" | "timbre_max"
->): TaxConfig {
+export function taxConfig(
+  settings?: Pick<
+    ShopSettings,
+    "tva_rate" | "timbre_rate" | "timbre_min" | "timbre_max"
+  >,
+): TaxConfig {
   return {
     tvaRate: Number(settings?.tva_rate ?? 0) || 0,
     timbreRate: Number(settings?.timbre_rate ?? 0) || 0,
@@ -32,7 +34,11 @@ export function extractTva(totalCentimes: number, tvaRateBp: number): number {
 }
 
 /** Droit de timbre on a cash sale's TTC total (0 unless cash and a rate is set). */
-export function computeTimbre(totalCentimes: number, cfg: TaxConfig, isCash: boolean): number {
+export function computeTimbre(
+  totalCentimes: number,
+  cfg: TaxConfig,
+  isCash: boolean,
+): number {
   if (!isCash || cfg.timbreRate <= 0 || totalCentimes <= 0) return 0;
   let t = Math.floor((totalCentimes * cfg.timbreRate) / 10000);
   if (t < cfg.timbreMin) t = cfg.timbreMin;

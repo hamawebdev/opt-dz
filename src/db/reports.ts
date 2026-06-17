@@ -1,7 +1,9 @@
 import { getDb } from "@/lib/db";
+import { todayISO } from "@/lib/format";
 
 export interface DashboardStats {
-  todaySalesTotal: number;
+  todaySalesTotal: number; // billed today (non-void), centimes
+  todayCollected: number; // cash actually collected today, centimes
   todayInvoiceCount: number;
   lowStockCount: number;
   outstandingTotal: number;
@@ -29,56 +31,92 @@ export interface OutstandingRow {
 /** Headline figures for the dashboard home screen. */
 export async function getDashboardStats(): Promise<DashboardStats> {
   const db = await getDb();
-  const [todayRows, lowRows, outRows] = await Promise.all([
+  const [todayRows, collectedRows, lowRows, outRows] = await Promise.all([
+    // Billed today: non-void invoices dated today (local day).
     db.select<{ cnt: number; total: number }[]>(
       `SELECT COUNT(*) AS cnt, COALESCE(SUM(total), 0) AS total
-       FROM sales WHERE date(sale_date) = date('now','localtime')`,
+       FROM sales
+       WHERE status <> 'void' AND date(sale_date) = date('now','localtime')`,
     ),
+    // Collected today: cash actually taken today (by payment date), minus cash refunds.
+    db.select<{ total: number }[]>(
+      `SELECT COALESCE((SELECT SUM(amount) FROM payments WHERE date(paid_at) = date('now','localtime')), 0)
+            - COALESCE((SELECT SUM(total) FROM credit_notes
+                        WHERE method = 'refund' AND date(created_at) = date('now','localtime')), 0)
+            AS total`,
+    ),
+    // Low stock: variant products with any low variant, OR simple products at/below
+    // their threshold. Services and archived products are excluded.
     db.select<{ cnt: number }[]>(
-      "SELECT COUNT(*) AS cnt FROM products WHERE quantity <= min_stock",
+      `SELECT COUNT(*) AS cnt FROM (
+         SELECT p.id FROM products p
+         WHERE p.item_type = 'product' AND p.archived = 0
+           AND NOT EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = p.id AND v.archived = 0)
+           AND p.quantity <= p.min_stock
+         UNION
+         SELECT v.product_id FROM product_variants v
+         JOIN products p ON p.id = v.product_id
+         WHERE p.item_type = 'product' AND p.archived = 0 AND v.archived = 0
+           AND v.quantity <= v.min_stock
+       )`,
     ),
     db.select<{ total: number }[]>(
-      "SELECT COALESCE(SUM(balance), 0) AS total FROM sales WHERE balance > 0",
+      "SELECT COALESCE(SUM(balance), 0) AS total FROM sales WHERE balance > 0 AND status <> 'void'",
     ),
   ]);
   return {
     todaySalesTotal: todayRows[0]?.total ?? 0,
+    todayCollected: collectedRows[0]?.total ?? 0,
     todayInvoiceCount: todayRows[0]?.cnt ?? 0,
     lowStockCount: lowRows[0]?.cnt ?? 0,
     outstandingTotal: outRows[0]?.total ?? 0,
   };
 }
 
-/** Daily revenue (sum of sale totals) over the last N days, including empty days. */
+/** Daily revenue over the last N days, net of returns and excluding void invoices,
+ * including empty days. */
 export async function getRevenueByDay(days = 14): Promise<RevenuePoint[]> {
   const db = await getDb();
   const rows = await db.select<RevenuePoint[]>(
-    `SELECT date(sale_date) AS day, COALESCE(SUM(total), 0) AS revenue
-     FROM sales
-     WHERE date(sale_date) >= date('now','localtime', $1)
-     GROUP BY date(sale_date)
+    `SELECT day, COALESCE(SUM(amt), 0) AS revenue FROM (
+       SELECT date(sale_date) AS day, total AS amt
+         FROM sales
+         WHERE status <> 'void' AND date(sale_date) >= date('now','localtime', $1)
+       UNION ALL
+       SELECT date(created_at) AS day, -total AS amt
+         FROM credit_notes
+         WHERE date(created_at) >= date('now','localtime', $1)
+     )
+     GROUP BY day
      ORDER BY day`,
     [`-${days - 1} days`],
   );
-  // Fill gaps so the chart shows a continuous axis.
+  // Fill gaps so the chart shows a continuous axis (local-day keys, matching SQL).
   const map = new Map(rows.map((r) => [r.day, r.revenue]));
   const out: RevenuePoint[] = [];
   const today = new Date();
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(today.getDate() - i);
-    const key = d.toISOString().slice(0, 10);
+    const key = todayISO(d);
     out.push({ day: key, revenue: map.get(key) ?? 0 });
   }
   return out;
 }
 
-/** Revenue (sum of sale totals) within an inclusive date range. */
-export async function getRevenueInRange(from: string, to: string): Promise<number> {
+/** Revenue within an inclusive date range, net of returns and excluding void invoices. */
+export async function getRevenueInRange(
+  from: string,
+  to: string,
+): Promise<number> {
   const db = await getDb();
   const rows = await db.select<{ total: number }[]>(
-    `SELECT COALESCE(SUM(total), 0) AS total FROM sales
-     WHERE date(sale_date) >= date($1) AND date(sale_date) <= date($2)`,
+    `SELECT
+       COALESCE((SELECT SUM(total) FROM sales
+                 WHERE status <> 'void' AND date(sale_date) >= date($1) AND date(sale_date) <= date($2)), 0)
+     - COALESCE((SELECT SUM(total) FROM credit_notes
+                 WHERE date(created_at) >= date($1) AND date(created_at) <= date($2)), 0)
+       AS total`,
     [from, to],
   );
   return rows[0]?.total ?? 0;
@@ -90,28 +128,45 @@ export interface TaxTotals {
 }
 
 /** TVA and timbre collected within an inclusive date range. */
-export async function getTaxInRange(from: string, to: string): Promise<TaxTotals> {
+export async function getTaxInRange(
+  from: string,
+  to: string,
+): Promise<TaxTotals> {
   const db = await getDb();
   const rows = await db.select<TaxTotals[]>(
     `SELECT COALESCE(SUM(tax_amount), 0) AS tva, COALESCE(SUM(timbre_amount), 0) AS timbre
      FROM sales
-     WHERE date(sale_date) >= date($1) AND date(sale_date) <= date($2)`,
+     WHERE status <> 'void' AND date(sale_date) >= date($1) AND date(sale_date) <= date($2)`,
     [from, to],
   );
   return rows[0] ?? { tva: 0, timbre: 0 };
 }
 
 /** Top-selling products by units sold within a date range. */
-export async function getBestSellers(from: string, to: string, limit = 10): Promise<BestSeller[]> {
+export async function getBestSellers(
+  from: string,
+  to: string,
+  limit = 10,
+): Promise<BestSeller[]> {
   const db = await getDb();
+  // Group by product_id (free-text lines fall back to their description), net of
+  // returns, excluding void invoices. Fully-returned products drop out (units <= 0).
   return db.select<BestSeller[]>(
-    `SELECT si.product_id AS product_id,
-            si.description AS description,
-            SUM(si.quantity) AS units,
-            SUM(si.line_total) AS revenue
-     FROM sale_items si JOIN sales s ON s.id = si.sale_id
-     WHERE date(s.sale_date) >= date($1) AND date(s.sale_date) <= date($2)
-     GROUP BY si.description
+    `SELECT MAX(product_id) AS product_id, MIN(description) AS description,
+            SUM(units) AS units, SUM(revenue) AS revenue
+     FROM (
+       SELECT si.product_id, si.description, si.quantity AS units, si.line_total AS revenue,
+              COALESCE(CAST(si.product_id AS TEXT), 'd:' || si.description) AS gk
+         FROM sale_items si JOIN sales s ON s.id = si.sale_id
+         WHERE s.status <> 'void' AND date(s.sale_date) >= date($1) AND date(s.sale_date) <= date($2)
+       UNION ALL
+       SELECT cni.product_id, cni.description, -cni.quantity, -cni.line_total,
+              COALESCE(CAST(cni.product_id AS TEXT), 'd:' || cni.description)
+         FROM credit_note_items cni JOIN credit_notes cn ON cn.id = cni.credit_note_id
+         WHERE date(cn.created_at) >= date($1) AND date(cn.created_at) <= date($2)
+     )
+     GROUP BY gk
+     HAVING SUM(units) > 0
      ORDER BY units DESC, revenue DESC
      LIMIT $3`,
     [from, to, limit],
@@ -127,7 +182,7 @@ export async function getOutstandingBalances(): Promise<OutstandingRow[]> {
             COUNT(*) AS sales_count,
             SUM(s.balance) AS outstanding
      FROM sales s JOIN patients p ON p.id = s.patient_id
-     WHERE s.balance > 0
+     WHERE s.balance > 0 AND s.status <> 'void'
      GROUP BY s.patient_id
      ORDER BY outstanding DESC`,
   );
@@ -147,7 +202,10 @@ export interface RecallRow {
  * Patients due for a recall: their most recent exam is older than `months` months,
  * or that prescription's expiry date has passed. Oldest first.
  */
-export async function getDueRecalls(months: number, limit = 50): Promise<RecallRow[]> {
+export async function getDueRecalls(
+  months: number,
+  limit = 50,
+): Promise<RecallRow[]> {
   const db = await getDb();
   return db.select<RecallRow[]>(
     `WITH latest AS (
@@ -169,12 +227,15 @@ export async function getDueRecalls(months: number, limit = 50): Promise<RecallR
 }
 
 /** Recent unpaid/partial sales for the dashboard "pending payments" list. */
-export async function getPendingPayments(limit = 6): Promise<SaleWithPatient[]> {
+export async function getPendingPayments(
+  limit = 6,
+): Promise<SaleWithPatient[]> {
   const db = await getDb();
+  // LEFT JOIN so walk-in sales with a balance are not hidden (audit finding D4).
   return db.select<SaleWithPatient[]>(
     `SELECT s.*, p.full_name AS patient_name
-     FROM sales s JOIN patients p ON p.id = s.patient_id
-     WHERE s.balance > 0
+     FROM sales s LEFT JOIN patients p ON p.id = s.patient_id
+     WHERE s.balance > 0 AND s.status <> 'void'
      ORDER BY s.sale_date DESC
      LIMIT $1`,
     [limit],

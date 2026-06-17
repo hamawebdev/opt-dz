@@ -19,6 +19,7 @@ import {
   useCreateVariant,
   useUpdateVariant,
   useDeleteVariant,
+  useAdjustVariantStock,
 } from "@/hooks/use-variants";
 import { toCentimes, fromCentimes } from "@/lib/format";
 import type { ProductVariant } from "@/types";
@@ -51,7 +52,9 @@ export function ProductVariantsEditor({ productId }: { productId: number }) {
       </div>
 
       {!variants?.length ? (
-        <p className="text-muted-foreground py-2 text-sm">{t("variants.none")}</p>
+        <p className="text-muted-foreground py-2 text-sm">
+          {t("variants.none")}
+        </p>
       ) : (
         <Table>
           <TableHeader>
@@ -59,7 +62,9 @@ export function ProductVariantsEditor({ productId }: { productId: number }) {
               <TableHead>{t("variants.color")}</TableHead>
               <TableHead>{t("variants.size")}</TableHead>
               <TableHead>{t("variants.barcode")}</TableHead>
-              <TableHead className="text-right">{t("inventory.stock")}</TableHead>
+              <TableHead className="text-right">
+                {t("inventory.stock")}
+              </TableHead>
               <TableHead className="text-right">
                 {t("variants.priceOverride")}
               </TableHead>
@@ -80,28 +85,45 @@ export function ProductVariantsEditor({ productId }: { productId: number }) {
 function VariantRow({ variant }: { variant: ProductVariant }) {
   const { t } = useTranslation();
   const update = useUpdateVariant();
+  const adjust = useAdjustVariantStock();
   const del = useDeleteVariant();
-  const [colorId, setColorId] = useState<number | null>(variant.color_id ?? null);
+  const [colorId, setColorId] = useState<number | null>(
+    variant.color_id ?? null,
+  );
   const [size, setSize] = useState(variant.size ?? "");
   const [barcode, setBarcode] = useState(variant.barcode ?? "");
   const [qty, setQty] = useState(String(variant.quantity));
   const [price, setPrice] = useState(
-    variant.selling_price != null ? String(fromCentimes(variant.selling_price)) : "",
+    variant.selling_price != null
+      ? String(fromCentimes(variant.selling_price))
+      : "",
   );
 
   async function save() {
     try {
+      // Descriptive fields go through updateVariant; the stock change is applied
+      // separately as a logged adjustment so the variant ledger stays the source of truth.
+      const newQty = Math.max(0, Math.floor(Number(qty) || 0));
+      const delta = newQty - variant.quantity;
       await update.mutateAsync({
         id: variant.id,
         input: {
           color_id: colorId,
           size: size || null,
           barcode: barcode || null,
-          quantity: Math.max(0, Math.floor(Number(qty) || 0)),
+          quantity: newQty, // ignored by updateVariant; kept for type compatibility
           min_stock: variant.min_stock,
           selling_price: price.trim() === "" ? null : toCentimes(price),
         },
       });
+      if (delta !== 0) {
+        await adjust.mutateAsync({
+          productId: variant.product_id,
+          variantId: variant.id,
+          quantityChange: delta,
+          note: t("variants.manualCorrection"),
+        });
+      }
       toast.success(t("variants.saved"));
     } catch (err) {
       notifyError(err, t("problem.saveFailed"));
@@ -114,7 +136,11 @@ function VariantRow({ variant }: { variant: ProductVariant }) {
         <ColorPicker value={colorId} onChange={setColorId} className="h-8" />
       </TableCell>
       <TableCell>
-        <Input value={size} onChange={(e) => setSize(e.target.value)} className="h-8 w-20" />
+        <Input
+          value={size}
+          onChange={(e) => setSize(e.target.value)}
+          className="h-8 w-20"
+        />
       </TableCell>
       <TableCell>
         <Input

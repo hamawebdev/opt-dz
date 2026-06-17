@@ -120,7 +120,11 @@ export default function AppointmentsPage() {
             <Button variant="outline" size="icon" onClick={() => shift(-1)}>
               <ChevronLeft className="size-4 rtl:rotate-180" />
             </Button>
-            <Button variant="outline" size="sm" onClick={() => setAnchor(new Date())}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setAnchor(new Date())}
+            >
               {t("appointments.today")}
             </Button>
             <Button variant="outline" size="icon" onClick={() => shift(1)}>
@@ -204,7 +208,8 @@ function ApptChip({
       className="bg-primary/10 hover:bg-primary/20 w-full truncate rounded px-1.5 py-1 text-start text-xs"
       title={`${timeOf(a.starts_at)} ${a.patient_name}`}
     >
-      <span className="font-medium">{timeOf(a.starts_at)}</span> {a.patient_name}
+      <span className="font-medium">{timeOf(a.starts_at)}</span>{" "}
+      {a.patient_name}
     </button>
   );
 }
@@ -289,7 +294,8 @@ function WeekGrid({
               {days.map((d) => {
                 const dayStr = iso(d);
                 const items = appts.filter(
-                  (a) => dateOf(a.starts_at) === dayStr && hourOf(a.starts_at) === h,
+                  (a) =>
+                    dateOf(a.starts_at) === dayStr && hourOf(a.starts_at) === h,
                 );
                 return (
                   <button
@@ -341,7 +347,9 @@ function AgendaList({
       {appts.map((a) => (
         <Card key={a.id}>
           <CardContent className="flex flex-wrap items-center gap-3 py-3">
-            <div className="w-14 text-sm font-semibold">{timeOf(a.starts_at)}</div>
+            <div className="w-14 text-sm font-semibold">
+              {timeOf(a.starts_at)}
+            </div>
             <div className="min-w-40 flex-1">
               <Link
                 to={`/patients/${a.patient_id}`}
@@ -358,14 +366,19 @@ function AgendaList({
             </Badge>
             <div className="flex flex-wrap gap-1">
               {checkin && a.status === "booked" && (
-                <Button size="sm" variant="outline" onClick={() => onStatus(a.id, "arrived")}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onStatus(a.id, "arrived")}
+                >
                   {t("appointments.markArrived")}
                 </Button>
               )}
               {checkin && a.status === "arrived" && (
                 <>
                   <Button size="sm" variant="outline" onClick={() => onExam(a)}>
-                    <Stethoscope className="size-4" /> {t("appointments.recordExam")}
+                    <Stethoscope className="size-4" />{" "}
+                    {t("appointments.recordExam")}
                   </Button>
                   <Button
                     size="sm"

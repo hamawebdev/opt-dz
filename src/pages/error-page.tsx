@@ -15,9 +15,7 @@ export function RouteErrorPage() {
   return (
     <ErrorScreen
       variant={notFound ? "notFound" : "boundary"}
-      detail={
-        !notFound && error instanceof Error ? error.message : undefined
-      }
+      detail={!notFound && error instanceof Error ? error.message : undefined}
     />
   );
 }

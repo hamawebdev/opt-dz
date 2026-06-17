@@ -7,6 +7,7 @@ import {
   updateVariant,
   type VariantInput,
 } from "@/db/variants";
+import { recordVariantAdjustment } from "@/db/stock";
 
 export function useVariants(productId: number | undefined) {
   return useQuery({
@@ -51,6 +52,20 @@ export function useDeleteVariant() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: number) => deleteVariant(id),
+    onSuccess: () => invalidate(qc),
+  });
+}
+
+/** Adjusts a variant's stock by a delta, logging a movement (single source of truth). */
+export function useAdjustVariantStock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (args: {
+      productId: number | null;
+      variantId: number;
+      quantityChange: number;
+      note?: string | null;
+    }) => recordVariantAdjustment(args),
     onSuccess: () => invalidate(qc),
   });
 }

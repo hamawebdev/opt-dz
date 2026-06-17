@@ -68,7 +68,9 @@ export default function SuppliersPage() {
               <TableHead className="text-right">
                 {t("suppliers.balance")}
               </TableHead>
-              <TableHead className="text-right">{t("common.actions")}</TableHead>
+              <TableHead className="text-right">
+                {t("common.actions")}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

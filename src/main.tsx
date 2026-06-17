@@ -18,6 +18,7 @@ import ProductFormPage from "@/pages/product-form";
 import TrackingProductsPage from "@/pages/tracking-products";
 import NotificationsPage from "@/pages/notifications";
 import SalesListPage from "@/pages/sales-list";
+import PosPage from "@/pages/pos";
 import SaleFormPage from "@/pages/sale-form";
 import SaleDetailPage from "@/pages/sale-detail";
 import SalePrintPage from "@/pages/sale-print";
@@ -40,8 +41,10 @@ const queryClient = new QueryClient();
 // window.clearSeedData). Stripped from production builds. See src/db/seed.ts.
 if (import.meta.env.DEV) {
   void import("@/db/seed").then((m) => {
-    (window as unknown as Record<string, unknown>).seedDatabase = m.seedDatabase;
-    (window as unknown as Record<string, unknown>).clearSeedData = m.clearSeedData;
+    (window as unknown as Record<string, unknown>).seedDatabase =
+      m.seedDatabase;
+    (window as unknown as Record<string, unknown>).clearSeedData =
+      m.clearSeedData;
   });
 }
 
@@ -66,6 +69,7 @@ const router = createHashRouter([
       { path: "tracking", element: <TrackingProductsPage /> },
       { path: "notifications", element: <NotificationsPage /> },
       { path: "sales", element: <SalesListPage /> },
+      { path: "pos", element: <PosPage /> },
       { path: "sales/new", element: <SaleFormPage /> },
       { path: "sales/:id", element: <SaleDetailPage /> },
       { path: "jobs", element: <JobsPage /> },
@@ -83,7 +87,10 @@ const router = createHashRouter([
   },
   // Standalone print routes (rendered without the app chrome for clean printing).
   { path: "/sales/:id/print", element: <SalePrintPage /> },
-  { path: "/patients/:id/statement/print", element: <PatientStatementPrintPage /> },
+  {
+    path: "/patients/:id/statement/print",
+    element: <PatientStatementPrintPage />,
+  },
   { path: "/label/print", element: <LabelPrintPage /> },
 ]);
 

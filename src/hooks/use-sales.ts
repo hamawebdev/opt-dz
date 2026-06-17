@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createSale,
-  deleteSale,
+  voidSale,
   getSale,
   getSaleItems,
   listSales,
@@ -55,19 +55,26 @@ export function useCreateSale() {
   return useMutation({
     mutationFn: (input: CreateSaleInput) => createSale(input),
     onSuccess: (saleId, input) => {
-      void logActivity(input.patient_id, "sale", null, saleId);
+      // Walk-in sales have no patient, so there is no timeline to log against.
+      if (input.patient_id != null) {
+        void logActivity(input.patient_id, "sale", null, saleId);
+        qc.invalidateQueries({
+          queryKey: ["patient-activity", input.patient_id],
+        });
+      }
       qc.invalidateQueries({ queryKey: saleKeys.all });
       qc.invalidateQueries({ queryKey: ["products"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
-      qc.invalidateQueries({ queryKey: ["patient-activity", input.patient_id] });
+      qc.invalidateQueries({ queryKey: ["held-sales"] });
     },
   });
 }
 
-export function useDeleteSale() {
+export function useVoidSale() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => deleteSale(id),
+    mutationFn: (args: { id: number; reason?: string | null }) =>
+      voidSale(args.id, args.reason ?? null),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: saleKeys.all });
       qc.invalidateQueries({ queryKey: ["products"] });
@@ -79,8 +86,11 @@ export function useDeleteSale() {
 export function useRecordPayment(saleId: number) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { amount: number; method?: string | null; note?: string | null }) =>
-      recordPayment({ saleId, ...args }),
+    mutationFn: (args: {
+      amount: number;
+      method?: string | null;
+      note?: string | null;
+    }) => recordPayment({ saleId, ...args }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: saleKeys.detail(saleId) });
       qc.invalidateQueries({ queryKey: saleKeys.payments(saleId) });

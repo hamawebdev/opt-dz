@@ -35,7 +35,9 @@ export function PaymentDialog({
   const { t } = useTranslation();
   // Seeded from props on mount; parent remounts via `key` when reopened.
   // `balance` is centimes; the input is in dinars.
-  const [amount, setAmount] = useState(() => (balance > 0 ? String(fromCentimes(balance)) : ""));
+  const [amount, setAmount] = useState(() =>
+    balance > 0 ? String(fromCentimes(balance)) : "",
+  );
   const [method, setMethod] = useState("");
   const record = useRecordPayment(saleId);
 
@@ -46,7 +48,10 @@ export function PaymentDialog({
       return;
     }
     try {
-      await record.mutateAsync({ amount: value, method: method.trim() || null });
+      await record.mutateAsync({
+        amount: value,
+        method: method.trim() || null,
+      });
       toast.success(t("payment.paymentRecorded"));
       onOpenChange(false);
     } catch (err) {
@@ -60,7 +65,9 @@ export function PaymentDialog({
         <DialogHeader>
           <DialogTitle>{t("payment.title")}</DialogTitle>
           <DialogDescription>
-            {t("payment.outstandingBalance", { amount: formatDZD(balance, currencySymbol) })}
+            {t("payment.outstandingBalance", {
+              amount: formatDZD(balance, currencySymbol),
+            })}
           </DialogDescription>
         </DialogHeader>
 

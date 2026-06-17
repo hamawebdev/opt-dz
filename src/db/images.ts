@@ -58,7 +58,9 @@ export async function setPrimaryImage(
 }
 
 /** Primary image data-URI per product id, for catalog thumbnails. */
-export async function primaryImagesByProduct(): Promise<Record<number, string>> {
+export async function primaryImagesByProduct(): Promise<
+  Record<number, string>
+> {
   const db = await getDb();
   const rows = await db.select<{ product_id: number; path: string }[]>(
     "SELECT product_id, path FROM product_images WHERE is_primary = 1",

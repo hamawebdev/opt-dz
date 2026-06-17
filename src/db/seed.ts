@@ -34,14 +34,27 @@ import { createCategory, createBrand } from "@/db/taxonomy";
 import { createProduct, type ProductInput } from "@/db/products";
 import { createVariant } from "@/db/variants";
 import { resolveColorId, createColor, addColorAlias } from "@/db/colors";
-import { setProductValues, setPatientValues, type AttributeValueInput } from "@/db/attributes";
+import {
+  setProductValues,
+  setPatientValues,
+  type AttributeValueInput,
+} from "@/db/attributes";
 import { createPatient } from "@/db/patients";
 import { createPrescription } from "@/db/prescriptions";
-import { createAppointment, setAppointmentStatus, linkAppointmentPrescription } from "@/db/appointments";
+import {
+  createAppointment,
+  setAppointmentStatus,
+  linkAppointmentPrescription,
+} from "@/db/appointments";
 import { updateClaimStatus, recordClaimPayment } from "@/db/claims";
 import { updateJobStatus, updateJobDetails } from "@/db/jobs";
 import { logActivity } from "@/db/activity";
-import type { AttributeFieldType, ProductCategory, ItemType, JobStatus } from "@/types";
+import type {
+  AttributeFieldType,
+  ProductCategory,
+  ItemType,
+  JobStatus,
+} from "@/types";
 
 // ── tiny deterministic helpers ──────────────────────────────────────────────
 // A fixed-seed PRNG makes the dataset stable across reseeds (easier to demo).
@@ -58,9 +71,10 @@ function mulberry32(seed: number) {
 }
 const rng = mulberry32(0x5eed1234);
 const rand = () => rng();
-const randInt = (min: number, max: number) => min + Math.floor(rand() * (max - min + 1));
+const randInt = (min: number, max: number) =>
+  min + Math.floor(rand() * (max - min + 1));
 const chance = (p: number) => rand() < p;
-const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)];
+const pick = <T>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)];
 function sample<T>(arr: readonly T[], n: number): T[] {
   const copy = [...arr];
   for (let i = copy.length - 1; i > 0; i--) {
@@ -79,19 +93,121 @@ const NOW = new Date();
 const pad2 = (n: number) => String(n).padStart(2, "0");
 const daysAgo = (n: number) => new Date(NOW.getTime() - n * DAY);
 const daysAhead = (n: number) => new Date(NOW.getTime() + n * DAY);
-const ymd = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-const ymdhms = (d: Date) => `${ymd(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
-const at = (d: Date, hh: number, mm: number) => `${ymd(d)} ${pad2(hh)}:${pad2(mm)}`;
+const ymd = (d: Date) =>
+  `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const ymdhms = (d: Date) =>
+  `${ymd(d)} ${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`;
+const at = (d: Date, hh: number, mm: number) =>
+  `${ymd(d)} ${pad2(hh)}:${pad2(mm)}`;
 
 // ── Algerian name / locale pools ────────────────────────────────────────────
-const MALE = ["Karim", "Sofiane", "Yacine", "Amine", "Bilal", "Riad", "Mehdi", "Walid", "Nabil", "Hamza", "Toufik", "Adel", "Reda", "Lyes", "Samir", "Farid", "Mourad", "Djamel", "Khaled", "Aymen"];
-const FEMALE = ["Yasmine", "Amina", "Sara", "Nadia", "Lila", "Imene", "Manel", "Hiba", "Soraya", "Kahina", "Meriem", "Asma", "Wassila", "Fatima", "Nawel", "Lina", "Rania", "Selma", "Dalia", "Hayet"];
-const LAST = ["Benali", "Hamadi", "Khelifi", "Belkacem", "Boudiaf", "Bouzid", "Cherif", "Mansouri", "Saadi", "Brahimi", "Zerrouki", "Haddad", "Lounis", "Meziane", "Taleb", "Slimani", "Ferhat", "Ouali", "Bensalem", "Guerroudj", "Rahmani", "Lakhdar", "Bouchama", "Ait Said"];
-const CITIES = ["Alger Centre", "Hydra, Alger", "Bab Ezzouar, Alger", "Kouba, Alger", "El Biar, Alger", "Cheraga, Alger", "Dely Ibrahim, Alger", "Bir Mourad Raïs, Alger", "Birkhadem, Alger", "Blida", "Boumerdès", "Tizi Ouzou"];
-const STREETS = ["Rue Didouche Mourad", "Bd Mohamed V", "Cité 1200 Logements", "Rue Larbi Ben M'hidi", "Avenue de l'ALN", "Cité des Frères Abbad", "Rue Hassiba Ben Bouali", "Lotissement El Feth"];
+const MALE = [
+  "Karim",
+  "Sofiane",
+  "Yacine",
+  "Amine",
+  "Bilal",
+  "Riad",
+  "Mehdi",
+  "Walid",
+  "Nabil",
+  "Hamza",
+  "Toufik",
+  "Adel",
+  "Reda",
+  "Lyes",
+  "Samir",
+  "Farid",
+  "Mourad",
+  "Djamel",
+  "Khaled",
+  "Aymen",
+];
+const FEMALE = [
+  "Yasmine",
+  "Amina",
+  "Sara",
+  "Nadia",
+  "Lila",
+  "Imene",
+  "Manel",
+  "Hiba",
+  "Soraya",
+  "Kahina",
+  "Meriem",
+  "Asma",
+  "Wassila",
+  "Fatima",
+  "Nawel",
+  "Lina",
+  "Rania",
+  "Selma",
+  "Dalia",
+  "Hayet",
+];
+const LAST = [
+  "Benali",
+  "Hamadi",
+  "Khelifi",
+  "Belkacem",
+  "Boudiaf",
+  "Bouzid",
+  "Cherif",
+  "Mansouri",
+  "Saadi",
+  "Brahimi",
+  "Zerrouki",
+  "Haddad",
+  "Lounis",
+  "Meziane",
+  "Taleb",
+  "Slimani",
+  "Ferhat",
+  "Ouali",
+  "Bensalem",
+  "Guerroudj",
+  "Rahmani",
+  "Lakhdar",
+  "Bouchama",
+  "Ait Said",
+];
+const CITIES = [
+  "Alger Centre",
+  "Hydra, Alger",
+  "Bab Ezzouar, Alger",
+  "Kouba, Alger",
+  "El Biar, Alger",
+  "Cheraga, Alger",
+  "Dely Ibrahim, Alger",
+  "Bir Mourad Raïs, Alger",
+  "Birkhadem, Alger",
+  "Blida",
+  "Boumerdès",
+  "Tizi Ouzou",
+];
+const STREETS = [
+  "Rue Didouche Mourad",
+  "Bd Mohamed V",
+  "Cité 1200 Logements",
+  "Rue Larbi Ben M'hidi",
+  "Avenue de l'ALN",
+  "Cité des Frères Abbad",
+  "Rue Hassiba Ben Bouali",
+  "Lotissement El Feth",
+];
 const OPTOMETRISTS = ["Dr. Brahimi", "Dr. Hamidi", "Dr. Cherifi"]; // in-store
-const PRESCRIBERS = ["Dr. Brahimi (opticien)", "Dr. Benmoussa (ophtalmo)", "Dr. Ait Said (ophtalmo)", "Dr. Hamidi (opticien)"];
-const LABS = ["Essilor Algérie (labo)", "Novacel Labo", "BBGR Labo", "Atelier interne"];
+const PRESCRIBERS = [
+  "Dr. Brahimi (opticien)",
+  "Dr. Benmoussa (ophtalmo)",
+  "Dr. Ait Said (ophtalmo)",
+  "Dr. Hamidi (opticien)",
+];
+const LABS = [
+  "Essilor Algérie (labo)",
+  "Novacel Labo",
+  "BBGR Labo",
+  "Atelier interne",
+];
 
 function phone(): string {
   const p = pick(["5", "6", "7"]);
@@ -112,10 +228,12 @@ function policyNo(prefix: string): string {
 type AttrMeta = { id: number; field_type: AttributeFieldType };
 async function loadAttributes(): Promise<Map<string, AttrMeta>> {
   const db = await getDb();
-  const rows = await db.select<{ id: number; key: string; field_type: AttributeFieldType }[]>(
-    "SELECT id, key, field_type FROM attribute_definitions",
+  const rows = await db.select<
+    { id: number; key: string; field_type: AttributeFieldType }[]
+  >("SELECT id, key, field_type FROM attribute_definitions");
+  return new Map(
+    rows.map((r) => [r.key, { id: r.id, field_type: r.field_type }]),
   );
-  return new Map(rows.map((r) => [r.key, { id: r.id, field_type: r.field_type }]));
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -123,13 +241,28 @@ async function loadAttributes(): Promise<Map<string, AttrMeta>> {
 // ════════════════════════════════════════════════════════════════════════════
 
 const SEEDED_TABLES = [
-  "patient_activity", "appointments",
-  "credit_note_items", "credit_notes",
-  "payments", "claims", "jobs",
-  "sale_items", "sales", "stock_movements",
-  "product_attribute_values", "patient_attribute_values", "product_images",
-  "product_variants", "products", "prescriptions", "patients",
-  "supplier_ledger", "suppliers", "brands", "categories", "payers",
+  "patient_activity",
+  "appointments",
+  "credit_note_items",
+  "credit_notes",
+  "payments",
+  "claims",
+  "jobs",
+  "sale_items",
+  "sales",
+  "stock_movements",
+  "product_attribute_values",
+  "patient_attribute_values",
+  "product_images",
+  "product_variants",
+  "products",
+  "prescriptions",
+  "patients",
+  "supplier_ledger",
+  "suppliers",
+  "brands",
+  "categories",
+  "payers",
 ];
 
 /** Wipes every table this seeder populates (FK-safe order) and resets the
@@ -168,7 +301,13 @@ export interface SeedOptions {
 
 // A sellable line resolved at insert time, with a live stock mirror so we never
 // build a sale that create_sale would reject for insufficient stock.
-type Kind = "frame_optical" | "frame_sun" | "lens" | "accessory" | "contact" | "service";
+type Kind =
+  | "frame_optical"
+  | "frame_sun"
+  | "lens"
+  | "accessory"
+  | "contact"
+  | "service";
 interface Sellable {
   kind: Kind;
   product_id: number;
@@ -181,7 +320,9 @@ interface Sellable {
 
 export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
   const db = await getDb();
-  const existing = await db.select<{ n: number }[]>("SELECT COUNT(*) AS n FROM patients");
+  const existing = await db.select<{ n: number }[]>(
+    "SELECT COUNT(*) AS n FROM patients",
+  );
   if ((existing[0]?.n ?? 0) > 0) {
     if (!opts.reset) {
       throw new Error(
@@ -194,12 +335,19 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
   console.info("[seed] starting…");
   const attr = await loadAttributes();
 
-  const setAttrs = async (productId: number, dict: Record<string, string | number | string[]>) => {
+  const setAttrs = async (
+    productId: number,
+    dict: Record<string, string | number | string[]>,
+  ) => {
     const values: AttributeValueInput[] = [];
     for (const [key, value] of Object.entries(dict)) {
       const meta = attr.get(key);
       if (!meta) continue;
-      values.push({ attribute_id: meta.id, field_type: meta.field_type, value });
+      values.push({
+        attribute_id: meta.id,
+        field_type: meta.field_type,
+        value,
+      });
     }
     if (values.length) await setProductValues(productId, values);
   };
@@ -241,10 +389,30 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
   });
 
   // ── 2. Payers (third-party insurers) ──────────────────────────────────────
-  const payerCnas = await createPayer({ name: "CNAS", type: "Sécurité sociale", default_coverage_pct: 8000, notes: "Salariés — tiers payant optique." });
-  const payerCasnos = await createPayer({ name: "CASNOS", type: "Sécurité sociale", default_coverage_pct: 7000, notes: "Non-salariés / indépendants." });
-  const payerMgptt = await createPayer({ name: "Mutuelle MGPTT", type: "Mutuelle", default_coverage_pct: 10000, notes: "Complémentaire — couvre le reste à charge." });
-  const payerSaa = await createPayer({ name: "Mutuelle SAA", type: "Mutuelle", default_coverage_pct: 5000, notes: "Assurance complémentaire entreprise." });
+  const payerCnas = await createPayer({
+    name: "CNAS",
+    type: "Sécurité sociale",
+    default_coverage_pct: 8000,
+    notes: "Salariés — tiers payant optique.",
+  });
+  const payerCasnos = await createPayer({
+    name: "CASNOS",
+    type: "Sécurité sociale",
+    default_coverage_pct: 7000,
+    notes: "Non-salariés / indépendants.",
+  });
+  const payerMgptt = await createPayer({
+    name: "Mutuelle MGPTT",
+    type: "Mutuelle",
+    default_coverage_pct: 10000,
+    notes: "Complémentaire — couvre le reste à charge.",
+  });
+  const payerSaa = await createPayer({
+    name: "Mutuelle SAA",
+    type: "Mutuelle",
+    default_coverage_pct: 5000,
+    notes: "Assurance complémentaire entreprise.",
+  });
   const payers = [
     { id: payerCnas, cov: 8000, prefix: "CNAS" },
     { id: payerCasnos, cov: 7000, prefix: "CASNOS" },
@@ -254,33 +422,102 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
 
   // ── 3. Suppliers + opening ledger movements ───────────────────────────────
   const suppliersDef = [
-    { name: "Luxottica Algérie", email: "contact@luxottica-dz.com", note: "Ray-Ban, Oakley, Persol, Vogue." },
-    { name: "Safilo Distribution", email: "ventes@safilo-dz.com", note: "Carrera, Police, Tom Ford." },
-    { name: "Essilor Algérie", email: "labo@essilor-dz.com", note: "Verres + laboratoire de taillage." },
-    { name: "Novacel / BBGR", email: "commande@novacel-dz.com", note: "Verres progressifs et haut indice." },
-    { name: "Optic Hall Import", email: "info@optichall-dz.com", note: "Montures maison, accessoires, lentilles." },
+    {
+      name: "Luxottica Algérie",
+      email: "contact@luxottica-dz.com",
+      note: "Ray-Ban, Oakley, Persol, Vogue.",
+    },
+    {
+      name: "Safilo Distribution",
+      email: "ventes@safilo-dz.com",
+      note: "Carrera, Police, Tom Ford.",
+    },
+    {
+      name: "Essilor Algérie",
+      email: "labo@essilor-dz.com",
+      note: "Verres + laboratoire de taillage.",
+    },
+    {
+      name: "Novacel / BBGR",
+      email: "commande@novacel-dz.com",
+      note: "Verres progressifs et haut indice.",
+    },
+    {
+      name: "Optic Hall Import",
+      email: "info@optichall-dz.com",
+      note: "Montures maison, accessoires, lentilles.",
+    },
   ];
   const supplierIds: Record<string, number> = {};
   for (const s of suppliersDef) {
-    const id = await createSupplier({ name: s.name, phone: phone(), email: s.email, address: `${pick(STREETS)}, ${pick(CITIES)}`, notes: s.note });
+    const id = await createSupplier({
+      name: s.name,
+      phone: phone(),
+      email: s.email,
+      address: `${pick(STREETS)}, ${pick(CITIES)}`,
+      notes: s.note,
+    });
     supplierIds[s.name] = id;
     // A couple of purchases (we owe more) and a partial payment (we owe less),
     // leaving a realistic outstanding balance for the supplier statement.
     const buy1 = da(randInt(80, 240) * 1000);
     const buy2 = da(randInt(40, 160) * 1000);
-    await addLedgerEntry({ supplierId: id, type: "purchase", amount: buy1, note: "Commande montures/verres", ref: `BL-${randInt(1000, 9999)}` });
-    await addLedgerEntry({ supplierId: id, type: "purchase", amount: buy2, note: "Réassort", ref: `BL-${randInt(1000, 9999)}` });
+    await addLedgerEntry({
+      supplierId: id,
+      type: "purchase",
+      amount: buy1,
+      note: "Commande montures/verres",
+      ref: `BL-${randInt(1000, 9999)}`,
+    });
+    await addLedgerEntry({
+      supplierId: id,
+      type: "purchase",
+      amount: buy2,
+      note: "Réassort",
+      ref: `BL-${randInt(1000, 9999)}`,
+    });
     if (chance(0.8)) {
-      await addLedgerEntry({ supplierId: id, type: "payment", amount: -Math.round((buy1 + buy2) * (0.4 + rand() * 0.4)), note: "Versement", ref: `VIR-${randInt(1000, 9999)}` });
+      await addLedgerEntry({
+        supplierId: id,
+        type: "payment",
+        amount: -Math.round((buy1 + buy2) * (0.4 + rand() * 0.4)),
+        note: "Versement",
+        ref: `VIR-${randInt(1000, 9999)}`,
+      });
     }
   }
 
   // ── 4. Managed merchandising taxonomy ─────────────────────────────────────
-  const catDefs = ["Optique de vue", "Solaires", "Verres", "Lentilles de contact", "Accessoires", "Enfants"];
+  const catDefs = [
+    "Optique de vue",
+    "Solaires",
+    "Verres",
+    "Lentilles de contact",
+    "Accessoires",
+    "Enfants",
+  ];
   const categoryIds: Record<string, number> = {};
   for (const c of catDefs) categoryIds[c] = await createCategory(c);
 
-  const brandDefs = ["Ray-Ban", "Oakley", "Persol", "Vogue", "Carrera", "Police", "Tom Ford", "Guess", "Essilor", "Zeiss", "Hoya", "BBGR", "Transitions", "Acuvue", "Biofinity", "Bausch+Lomb", "El Bassar (maison)"];
+  const brandDefs = [
+    "Ray-Ban",
+    "Oakley",
+    "Persol",
+    "Vogue",
+    "Carrera",
+    "Police",
+    "Tom Ford",
+    "Guess",
+    "Essilor",
+    "Zeiss",
+    "Hoya",
+    "BBGR",
+    "Transitions",
+    "Acuvue",
+    "Biofinity",
+    "Bausch+Lomb",
+    "El Bassar (maison)",
+  ];
   const brandIds: Record<string, number> = {};
   for (const b of brandDefs) brandIds[b] = await createBrand(b);
 
@@ -303,7 +540,13 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
     min_stock: number;
     expiry?: Date | null;
     attrs?: Record<string, string | number | string[]>;
-    variants?: { color: string; size?: string; qty: number; min?: number; priceDelta?: number }[];
+    variants?: {
+      color: string;
+      size?: string;
+      qty: number;
+      min?: number;
+      priceDelta?: number;
+    }[];
   }): Promise<number> {
     const isService = (args.item_type ?? "product") === "service";
     const hasVariants = !!args.variants?.length;
@@ -318,7 +561,8 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
       name: args.name,
       brand: args.brand ?? null,
       reference: args.reference ?? null,
-      barcode: isService || hasVariants ? null : generateEan13Local(barcodeSeed++),
+      barcode:
+        isService || hasVariants ? null : generateEan13Local(barcodeSeed++),
       expiry_date: args.expiry ? ymd(args.expiry) : null,
       purchase_price: da(args.purchase),
       selling_price: da(args.selling),
@@ -348,81 +592,670 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
           purchase_price: da(args.purchase),
         });
         sellables.push({
-          kind: args.kind, product_id: productId, variant_id: variantId,
+          kind: args.kind,
+          product_id: productId,
+          variant_id: variantId,
           description: `${args.brand ? args.brand + " " : ""}${args.name} — ${v.color}${v.size ? ` ${v.size}` : ""}`,
-          unit_price: price, category: args.category, avail: v.qty,
+          unit_price: price,
+          category: args.category,
+          avail: v.qty,
         });
       }
     } else if (!isService) {
       sellables.push({
-        kind: args.kind, product_id: productId, variant_id: null,
+        kind: args.kind,
+        product_id: productId,
+        variant_id: null,
         description: `${args.brand ? args.brand + " " : ""}${args.name}`,
-        unit_price: da(args.selling), category: args.category, avail: args.quantity,
+        unit_price: da(args.selling),
+        category: args.category,
+        avail: args.quantity,
       });
     } else {
       sellables.push({
-        kind: "service", product_id: productId, variant_id: null,
-        description: args.name, unit_price: da(args.selling),
-        category: args.category, avail: Infinity,
+        kind: "service",
+        product_id: productId,
+        variant_id: null,
+        description: args.name,
+        unit_price: da(args.selling),
+        category: args.category,
+        avail: Infinity,
       });
     }
     return productId;
   }
 
   // Optical frames (mix of simple + variant products).
-  await addProduct({ kind: "frame_optical", category: "frame", categoryName: "Optique de vue", name: "Wayfarer RB5154 Clubmaster", brand: "Ray-Ban", reference: "RB5154", supplier: "Luxottica Algérie", purchase: 6500, selling: 16500, quantity: 0, min_stock: 2, attrs: { frame_material: "acetate", frame_shape: "browline", frame_rim: "semi-rimless", eye_size: 51, bridge: 21, temple: 145, gender: "unisex", suitable_for: ["distance", "reading"] }, variants: [{ color: "Noir", size: "51", qty: 4 }, { color: "Havane", size: "51", qty: 3 }, { color: "Écaille", size: "49", qty: 2, priceDelta: 0 }] });
-  await addProduct({ kind: "frame_optical", category: "frame", categoryName: "Optique de vue", name: "Vogue VO5234", brand: "Vogue", reference: "VO5234", supplier: "Luxottica Algérie", purchase: 3800, selling: 9900, quantity: 0, min_stock: 2, attrs: { frame_material: "metal", frame_shape: "round", frame_rim: "full-rim", eye_size: 50, bridge: 20, temple: 140, gender: "women", suitable_for: ["distance"] }, variants: [{ color: "Doré", qty: 5 }, { color: "Rose", qty: 2 }] });
-  await addProduct({ kind: "frame_optical", category: "frame", categoryName: "Optique de vue", name: "Carrera 8821", brand: "Carrera", reference: "CA8821", supplier: "Safilo Distribution", purchase: 5200, selling: 13900, quantity: 6, min_stock: 2, attrs: { frame_material: "TR90", frame_shape: "rectangle", frame_rim: "full-rim", frame_color: "Noir mat", eye_size: 54, bridge: 17, temple: 145, gender: "men", suitable_for: ["distance", "computer"] } });
-  await addProduct({ kind: "frame_optical", category: "frame", categoryName: "Optique de vue", name: "Police VPLB12", brand: "Police", reference: "VPLB12", supplier: "Safilo Distribution", purchase: 4600, selling: 12500, quantity: 5, min_stock: 2, attrs: { frame_material: "metal", frame_shape: "square", frame_rim: "full-rim", frame_color: "Gunmetal", eye_size: 53, bridge: 18, temple: 145, gender: "men", suitable_for: ["distance"] } });
-  await addProduct({ kind: "frame_optical", category: "frame", categoryName: "Optique de vue", name: "Guess GU2745", brand: "Guess", reference: "GU2745", supplier: "Optic Hall Import", purchase: 3200, selling: 8500, quantity: 7, min_stock: 2, attrs: { frame_material: "acetate", frame_shape: "cat-eye", frame_rim: "full-rim", frame_color: "Bordeaux", eye_size: 52, bridge: 16, temple: 140, gender: "women", suitable_for: ["distance"] } });
-  await addProduct({ kind: "frame_optical", category: "frame", categoryName: "Enfants", name: "Monture Enfant Flex", brand: "El Bassar (maison)", reference: "KID-FLEX", supplier: "Optic Hall Import", purchase: 1200, selling: 4500, quantity: 10, min_stock: 4, attrs: { frame_material: "TR90", frame_shape: "oval", frame_rim: "full-rim", frame_color: "Bleu", eye_size: 44, bridge: 15, temple: 125, gender: "kids", suitable_for: ["distance"] } });
-  await addProduct({ kind: "frame_optical", category: "frame", categoryName: "Optique de vue", name: "Titane Léger T-200", brand: "El Bassar (maison)", reference: "T200", supplier: "Optic Hall Import", purchase: 2800, selling: 7900, quantity: 8, min_stock: 3, attrs: { frame_material: "titanium", frame_shape: "rectangle", frame_rim: "rimless", frame_color: "Argent", eye_size: 53, bridge: 18, temple: 140, gender: "unisex", suitable_for: ["distance", "computer"] } });
-  await addProduct({ kind: "frame_optical", category: "frame", categoryName: "Optique de vue", name: "Tom Ford FT5634", brand: "Tom Ford", reference: "FT5634", supplier: "Safilo Distribution", purchase: 11000, selling: 28000, quantity: 3, min_stock: 1, attrs: { frame_material: "acetate", frame_shape: "square", frame_rim: "full-rim", frame_color: "Noir brillant", eye_size: 55, bridge: 18, temple: 145, gender: "men", suitable_for: ["distance"] } });
+  await addProduct({
+    kind: "frame_optical",
+    category: "frame",
+    categoryName: "Optique de vue",
+    name: "Wayfarer RB5154 Clubmaster",
+    brand: "Ray-Ban",
+    reference: "RB5154",
+    supplier: "Luxottica Algérie",
+    purchase: 6500,
+    selling: 16500,
+    quantity: 0,
+    min_stock: 2,
+    attrs: {
+      frame_material: "acetate",
+      frame_shape: "browline",
+      frame_rim: "semi-rimless",
+      eye_size: 51,
+      bridge: 21,
+      temple: 145,
+      gender: "unisex",
+      suitable_for: ["distance", "reading"],
+    },
+    variants: [
+      { color: "Noir", size: "51", qty: 4 },
+      { color: "Havane", size: "51", qty: 3 },
+      { color: "Écaille", size: "49", qty: 2, priceDelta: 0 },
+    ],
+  });
+  await addProduct({
+    kind: "frame_optical",
+    category: "frame",
+    categoryName: "Optique de vue",
+    name: "Vogue VO5234",
+    brand: "Vogue",
+    reference: "VO5234",
+    supplier: "Luxottica Algérie",
+    purchase: 3800,
+    selling: 9900,
+    quantity: 0,
+    min_stock: 2,
+    attrs: {
+      frame_material: "metal",
+      frame_shape: "round",
+      frame_rim: "full-rim",
+      eye_size: 50,
+      bridge: 20,
+      temple: 140,
+      gender: "women",
+      suitable_for: ["distance"],
+    },
+    variants: [
+      { color: "Doré", qty: 5 },
+      { color: "Rose", qty: 2 },
+    ],
+  });
+  await addProduct({
+    kind: "frame_optical",
+    category: "frame",
+    categoryName: "Optique de vue",
+    name: "Carrera 8821",
+    brand: "Carrera",
+    reference: "CA8821",
+    supplier: "Safilo Distribution",
+    purchase: 5200,
+    selling: 13900,
+    quantity: 6,
+    min_stock: 2,
+    attrs: {
+      frame_material: "TR90",
+      frame_shape: "rectangle",
+      frame_rim: "full-rim",
+      frame_color: "Noir mat",
+      eye_size: 54,
+      bridge: 17,
+      temple: 145,
+      gender: "men",
+      suitable_for: ["distance", "computer"],
+    },
+  });
+  await addProduct({
+    kind: "frame_optical",
+    category: "frame",
+    categoryName: "Optique de vue",
+    name: "Police VPLB12",
+    brand: "Police",
+    reference: "VPLB12",
+    supplier: "Safilo Distribution",
+    purchase: 4600,
+    selling: 12500,
+    quantity: 5,
+    min_stock: 2,
+    attrs: {
+      frame_material: "metal",
+      frame_shape: "square",
+      frame_rim: "full-rim",
+      frame_color: "Gunmetal",
+      eye_size: 53,
+      bridge: 18,
+      temple: 145,
+      gender: "men",
+      suitable_for: ["distance"],
+    },
+  });
+  await addProduct({
+    kind: "frame_optical",
+    category: "frame",
+    categoryName: "Optique de vue",
+    name: "Guess GU2745",
+    brand: "Guess",
+    reference: "GU2745",
+    supplier: "Optic Hall Import",
+    purchase: 3200,
+    selling: 8500,
+    quantity: 7,
+    min_stock: 2,
+    attrs: {
+      frame_material: "acetate",
+      frame_shape: "cat-eye",
+      frame_rim: "full-rim",
+      frame_color: "Bordeaux",
+      eye_size: 52,
+      bridge: 16,
+      temple: 140,
+      gender: "women",
+      suitable_for: ["distance"],
+    },
+  });
+  await addProduct({
+    kind: "frame_optical",
+    category: "frame",
+    categoryName: "Enfants",
+    name: "Monture Enfant Flex",
+    brand: "El Bassar (maison)",
+    reference: "KID-FLEX",
+    supplier: "Optic Hall Import",
+    purchase: 1200,
+    selling: 4500,
+    quantity: 10,
+    min_stock: 4,
+    attrs: {
+      frame_material: "TR90",
+      frame_shape: "oval",
+      frame_rim: "full-rim",
+      frame_color: "Bleu",
+      eye_size: 44,
+      bridge: 15,
+      temple: 125,
+      gender: "kids",
+      suitable_for: ["distance"],
+    },
+  });
+  await addProduct({
+    kind: "frame_optical",
+    category: "frame",
+    categoryName: "Optique de vue",
+    name: "Titane Léger T-200",
+    brand: "El Bassar (maison)",
+    reference: "T200",
+    supplier: "Optic Hall Import",
+    purchase: 2800,
+    selling: 7900,
+    quantity: 8,
+    min_stock: 3,
+    attrs: {
+      frame_material: "titanium",
+      frame_shape: "rectangle",
+      frame_rim: "rimless",
+      frame_color: "Argent",
+      eye_size: 53,
+      bridge: 18,
+      temple: 140,
+      gender: "unisex",
+      suitable_for: ["distance", "computer"],
+    },
+  });
+  await addProduct({
+    kind: "frame_optical",
+    category: "frame",
+    categoryName: "Optique de vue",
+    name: "Tom Ford FT5634",
+    brand: "Tom Ford",
+    reference: "FT5634",
+    supplier: "Safilo Distribution",
+    purchase: 11000,
+    selling: 28000,
+    quantity: 3,
+    min_stock: 1,
+    attrs: {
+      frame_material: "acetate",
+      frame_shape: "square",
+      frame_rim: "full-rim",
+      frame_color: "Noir brillant",
+      eye_size: 55,
+      bridge: 18,
+      temple: 145,
+      gender: "men",
+      suitable_for: ["distance"],
+    },
+  });
 
   // Sunglasses (frame_sun).
-  await addProduct({ kind: "frame_sun", category: "frame", categoryName: "Solaires", name: "Aviator RB3025", brand: "Ray-Ban", reference: "RB3025", supplier: "Luxottica Algérie", purchase: 7200, selling: 18500, quantity: 0, min_stock: 2, attrs: { frame_material: "metal", frame_shape: "aviator", frame_rim: "full-rim", eye_size: 58, bridge: 14, temple: 135, gender: "unisex", suitable_for: ["sun", "driving"] }, variants: [{ color: "Or / Vert G15", qty: 4 }, { color: "Argent / Miroir", qty: 3, priceDelta: 1500 }] });
-  await addProduct({ kind: "frame_sun", category: "frame", categoryName: "Solaires", name: "Wayfarer RB2140", brand: "Ray-Ban", reference: "RB2140", supplier: "Luxottica Algérie", purchase: 6800, selling: 17500, quantity: 6, min_stock: 2, attrs: { frame_material: "acetate", frame_shape: "square", frame_rim: "full-rim", frame_color: "Noir", eye_size: 50, bridge: 22, temple: 150, gender: "unisex", suitable_for: ["sun", "driving"] } });
-  await addProduct({ kind: "frame_sun", category: "frame", categoryName: "Solaires", name: "Oakley Holbrook OO9102", brand: "Oakley", reference: "OO9102", supplier: "Luxottica Algérie", purchase: 8200, selling: 21000, quantity: 4, min_stock: 1, attrs: { frame_material: "TR90", frame_shape: "square", frame_rim: "full-rim", frame_color: "Noir mat", eye_size: 55, bridge: 18, temple: 137, gender: "men", suitable_for: ["sun", "sport", "driving"] } });
-  await addProduct({ kind: "frame_sun", category: "frame", categoryName: "Solaires", name: "Persol PO3007", brand: "Persol", reference: "PO3007", supplier: "Luxottica Algérie", purchase: 9000, selling: 23500, quantity: 3, min_stock: 1, attrs: { frame_material: "acetate", frame_shape: "round", frame_rim: "full-rim", frame_color: "Havane", eye_size: 53, bridge: 21, temple: 145, gender: "men", suitable_for: ["sun"] } });
+  await addProduct({
+    kind: "frame_sun",
+    category: "frame",
+    categoryName: "Solaires",
+    name: "Aviator RB3025",
+    brand: "Ray-Ban",
+    reference: "RB3025",
+    supplier: "Luxottica Algérie",
+    purchase: 7200,
+    selling: 18500,
+    quantity: 0,
+    min_stock: 2,
+    attrs: {
+      frame_material: "metal",
+      frame_shape: "aviator",
+      frame_rim: "full-rim",
+      eye_size: 58,
+      bridge: 14,
+      temple: 135,
+      gender: "unisex",
+      suitable_for: ["sun", "driving"],
+    },
+    variants: [
+      { color: "Or / Vert G15", qty: 4 },
+      { color: "Argent / Miroir", qty: 3, priceDelta: 1500 },
+    ],
+  });
+  await addProduct({
+    kind: "frame_sun",
+    category: "frame",
+    categoryName: "Solaires",
+    name: "Wayfarer RB2140",
+    brand: "Ray-Ban",
+    reference: "RB2140",
+    supplier: "Luxottica Algérie",
+    purchase: 6800,
+    selling: 17500,
+    quantity: 6,
+    min_stock: 2,
+    attrs: {
+      frame_material: "acetate",
+      frame_shape: "square",
+      frame_rim: "full-rim",
+      frame_color: "Noir",
+      eye_size: 50,
+      bridge: 22,
+      temple: 150,
+      gender: "unisex",
+      suitable_for: ["sun", "driving"],
+    },
+  });
+  await addProduct({
+    kind: "frame_sun",
+    category: "frame",
+    categoryName: "Solaires",
+    name: "Oakley Holbrook OO9102",
+    brand: "Oakley",
+    reference: "OO9102",
+    supplier: "Luxottica Algérie",
+    purchase: 8200,
+    selling: 21000,
+    quantity: 4,
+    min_stock: 1,
+    attrs: {
+      frame_material: "TR90",
+      frame_shape: "square",
+      frame_rim: "full-rim",
+      frame_color: "Noir mat",
+      eye_size: 55,
+      bridge: 18,
+      temple: 137,
+      gender: "men",
+      suitable_for: ["sun", "sport", "driving"],
+    },
+  });
+  await addProduct({
+    kind: "frame_sun",
+    category: "frame",
+    categoryName: "Solaires",
+    name: "Persol PO3007",
+    brand: "Persol",
+    reference: "PO3007",
+    supplier: "Luxottica Algérie",
+    purchase: 9000,
+    selling: 23500,
+    quantity: 3,
+    min_stock: 1,
+    attrs: {
+      frame_material: "acetate",
+      frame_shape: "round",
+      frame_rim: "full-rim",
+      frame_color: "Havane",
+      eye_size: 53,
+      bridge: 21,
+      temple: 145,
+      gender: "men",
+      suitable_for: ["sun"],
+    },
+  });
 
   // Lenses (category 'lens' → auto-creates a lab job when sold).
-  await addProduct({ kind: "lens", category: "lens", categoryName: "Verres", name: "Verres unifocaux 1.5 AR (la paire)", brand: "Essilor", reference: "UNI-15-AR", supplier: "Essilor Algérie", purchase: 1800, selling: 5500, quantity: 40, min_stock: 8, attrs: { lens_material: "CR-39", lens_index: 1.5, coatings: ["AR", "UV", "scratch-resistant"], suitable_for: ["distance"] } });
-  await addProduct({ kind: "lens", category: "lens", categoryName: "Verres", name: "Verres unifocaux 1.6 AR + anti-lumière bleue", brand: "Essilor", reference: "EYEZEN-16", supplier: "Essilor Algérie", purchase: 3200, selling: 9800, quantity: 30, min_stock: 6, attrs: { lens_material: "high-index 1.67", lens_index: 1.6, coatings: ["AR", "blue-light", "UV"], suitable_for: ["computer", "distance"] } });
-  await addProduct({ kind: "lens", category: "lens", categoryName: "Verres", name: "Verres progressifs Varilux Comfort 1.5", brand: "Essilor", reference: "VARILUX-C15", supplier: "Essilor Algérie", purchase: 9500, selling: 28000, quantity: 20, min_stock: 4, attrs: { lens_material: "CR-39", lens_index: 1.5, coatings: ["AR", "UV", "scratch-resistant"], suitable_for: ["reading", "distance"] } });
-  await addProduct({ kind: "lens", category: "lens", categoryName: "Verres", name: "Verres progressifs Zeiss SmartLife 1.6", brand: "Zeiss", reference: "ZEISS-SL16", supplier: "Novacel / BBGR", purchase: 14000, selling: 39000, quantity: 12, min_stock: 3, attrs: { lens_material: "high-index 1.67", lens_index: 1.6, coatings: ["AR", "blue-light", "UV"], suitable_for: ["reading", "distance", "computer"] } });
-  await addProduct({ kind: "lens", category: "lens", categoryName: "Verres", name: "Verres photochromiques Transitions 1.5", brand: "Transitions", reference: "TRANS-15", supplier: "Novacel / BBGR", purchase: 5200, selling: 15500, quantity: 18, min_stock: 4, attrs: { lens_material: "CR-39", lens_index: 1.5, coatings: ["AR", "photochromic", "UV"], suitable_for: ["distance", "sun"] } });
-  await addProduct({ kind: "lens", category: "lens", categoryName: "Verres", name: "Verres haut indice 1.67 AR", brand: "BBGR", reference: "HI-167", supplier: "Novacel / BBGR", purchase: 4800, selling: 14000, quantity: 22, min_stock: 5, attrs: { lens_material: "high-index 1.67", lens_index: 1.67, coatings: ["AR", "UV"], suitable_for: ["distance"] } });
-  await addProduct({ kind: "lens", category: "lens", categoryName: "Verres", name: "Verres polycarbonate enfant 1.59", brand: "Hoya", reference: "PC-159", supplier: "Novacel / BBGR", purchase: 2600, selling: 7500, quantity: 16, min_stock: 4, attrs: { lens_material: "polycarbonate", lens_index: 1.59, coatings: ["AR", "UV", "scratch-resistant"], suitable_for: ["distance", "sport"] } });
+  await addProduct({
+    kind: "lens",
+    category: "lens",
+    categoryName: "Verres",
+    name: "Verres unifocaux 1.5 AR (la paire)",
+    brand: "Essilor",
+    reference: "UNI-15-AR",
+    supplier: "Essilor Algérie",
+    purchase: 1800,
+    selling: 5500,
+    quantity: 40,
+    min_stock: 8,
+    attrs: {
+      lens_material: "CR-39",
+      lens_index: 1.5,
+      coatings: ["AR", "UV", "scratch-resistant"],
+      suitable_for: ["distance"],
+    },
+  });
+  await addProduct({
+    kind: "lens",
+    category: "lens",
+    categoryName: "Verres",
+    name: "Verres unifocaux 1.6 AR + anti-lumière bleue",
+    brand: "Essilor",
+    reference: "EYEZEN-16",
+    supplier: "Essilor Algérie",
+    purchase: 3200,
+    selling: 9800,
+    quantity: 30,
+    min_stock: 6,
+    attrs: {
+      lens_material: "high-index 1.67",
+      lens_index: 1.6,
+      coatings: ["AR", "blue-light", "UV"],
+      suitable_for: ["computer", "distance"],
+    },
+  });
+  await addProduct({
+    kind: "lens",
+    category: "lens",
+    categoryName: "Verres",
+    name: "Verres progressifs Varilux Comfort 1.5",
+    brand: "Essilor",
+    reference: "VARILUX-C15",
+    supplier: "Essilor Algérie",
+    purchase: 9500,
+    selling: 28000,
+    quantity: 20,
+    min_stock: 4,
+    attrs: {
+      lens_material: "CR-39",
+      lens_index: 1.5,
+      coatings: ["AR", "UV", "scratch-resistant"],
+      suitable_for: ["reading", "distance"],
+    },
+  });
+  await addProduct({
+    kind: "lens",
+    category: "lens",
+    categoryName: "Verres",
+    name: "Verres progressifs Zeiss SmartLife 1.6",
+    brand: "Zeiss",
+    reference: "ZEISS-SL16",
+    supplier: "Novacel / BBGR",
+    purchase: 14000,
+    selling: 39000,
+    quantity: 12,
+    min_stock: 3,
+    attrs: {
+      lens_material: "high-index 1.67",
+      lens_index: 1.6,
+      coatings: ["AR", "blue-light", "UV"],
+      suitable_for: ["reading", "distance", "computer"],
+    },
+  });
+  await addProduct({
+    kind: "lens",
+    category: "lens",
+    categoryName: "Verres",
+    name: "Verres photochromiques Transitions 1.5",
+    brand: "Transitions",
+    reference: "TRANS-15",
+    supplier: "Novacel / BBGR",
+    purchase: 5200,
+    selling: 15500,
+    quantity: 18,
+    min_stock: 4,
+    attrs: {
+      lens_material: "CR-39",
+      lens_index: 1.5,
+      coatings: ["AR", "photochromic", "UV"],
+      suitable_for: ["distance", "sun"],
+    },
+  });
+  await addProduct({
+    kind: "lens",
+    category: "lens",
+    categoryName: "Verres",
+    name: "Verres haut indice 1.67 AR",
+    brand: "BBGR",
+    reference: "HI-167",
+    supplier: "Novacel / BBGR",
+    purchase: 4800,
+    selling: 14000,
+    quantity: 22,
+    min_stock: 5,
+    attrs: {
+      lens_material: "high-index 1.67",
+      lens_index: 1.67,
+      coatings: ["AR", "UV"],
+      suitable_for: ["distance"],
+    },
+  });
+  await addProduct({
+    kind: "lens",
+    category: "lens",
+    categoryName: "Verres",
+    name: "Verres polycarbonate enfant 1.59",
+    brand: "Hoya",
+    reference: "PC-159",
+    supplier: "Novacel / BBGR",
+    purchase: 2600,
+    selling: 7500,
+    quantity: 16,
+    min_stock: 4,
+    attrs: {
+      lens_material: "polycarbonate",
+      lens_index: 1.59,
+      coatings: ["AR", "UV", "scratch-resistant"],
+      suitable_for: ["distance", "sport"],
+    },
+  });
 
   // Accessories + contact lenses (some near expiry, some low stock).
-  await addProduct({ kind: "accessory", category: "accessory", categoryName: "Accessoires", name: "Étui rigide", brand: "El Bassar (maison)", supplier: "Optic Hall Import", purchase: 200, selling: 700, quantity: 60, min_stock: 10 });
-  await addProduct({ kind: "accessory", category: "accessory", categoryName: "Accessoires", name: "Chiffon microfibre", brand: "El Bassar (maison)", supplier: "Optic Hall Import", purchase: 60, selling: 300, quantity: 4, min_stock: 15 }); // low stock
-  await addProduct({ kind: "accessory", category: "accessory", categoryName: "Accessoires", name: "Cordon à lunettes", brand: "El Bassar (maison)", supplier: "Optic Hall Import", purchase: 150, selling: 600, quantity: 25, min_stock: 8 });
-  await addProduct({ kind: "accessory", category: "accessory", categoryName: "Accessoires", name: "Spray nettoyant 30ml", brand: "El Bassar (maison)", supplier: "Optic Hall Import", purchase: 280, selling: 900, quantity: 18, min_stock: 6, expiry: daysAhead(45) }); // expiring soon
-  await addProduct({ kind: "accessory", category: "accessory", categoryName: "Accessoires", name: "Kit réparation lunettes", brand: "El Bassar (maison)", supplier: "Optic Hall Import", purchase: 180, selling: 750, quantity: 12, min_stock: 5 });
-  await addProduct({ kind: "contact", category: "accessory", categoryName: "Lentilles de contact", name: "Lentilles Acuvue Oasys (boîte 6)", brand: "Acuvue", reference: "OASYS-6", supplier: "Optic Hall Import", purchase: 1900, selling: 3500, quantity: 14, min_stock: 6, expiry: daysAhead(380) });
-  await addProduct({ kind: "contact", category: "accessory", categoryName: "Lentilles de contact", name: "Lentilles Biofinity (boîte 3)", brand: "Biofinity", reference: "BIO-3", supplier: "Optic Hall Import", purchase: 1600, selling: 3000, quantity: 3, min_stock: 5, expiry: daysAhead(30) }); // low + expiring
-  await addProduct({ kind: "contact", category: "accessory", categoryName: "Lentilles de contact", name: "Solution Renu 360ml", brand: "Bausch+Lomb", reference: "RENU-360", supplier: "Optic Hall Import", purchase: 700, selling: 1400, quantity: 22, min_stock: 8, expiry: daysAhead(120) });
-  await addProduct({ kind: "contact", category: "accessory", categoryName: "Lentilles de contact", name: "Gouttes hydratantes 10ml", brand: "Bausch+Lomb", reference: "DROPS-10", supplier: "Optic Hall Import", purchase: 320, selling: 850, quantity: 16, min_stock: 6, expiry: daysAhead(-10) }); // already expired
+  await addProduct({
+    kind: "accessory",
+    category: "accessory",
+    categoryName: "Accessoires",
+    name: "Étui rigide",
+    brand: "El Bassar (maison)",
+    supplier: "Optic Hall Import",
+    purchase: 200,
+    selling: 700,
+    quantity: 60,
+    min_stock: 10,
+  });
+  await addProduct({
+    kind: "accessory",
+    category: "accessory",
+    categoryName: "Accessoires",
+    name: "Chiffon microfibre",
+    brand: "El Bassar (maison)",
+    supplier: "Optic Hall Import",
+    purchase: 60,
+    selling: 300,
+    quantity: 4,
+    min_stock: 15,
+  }); // low stock
+  await addProduct({
+    kind: "accessory",
+    category: "accessory",
+    categoryName: "Accessoires",
+    name: "Cordon à lunettes",
+    brand: "El Bassar (maison)",
+    supplier: "Optic Hall Import",
+    purchase: 150,
+    selling: 600,
+    quantity: 25,
+    min_stock: 8,
+  });
+  await addProduct({
+    kind: "accessory",
+    category: "accessory",
+    categoryName: "Accessoires",
+    name: "Spray nettoyant 30ml",
+    brand: "El Bassar (maison)",
+    supplier: "Optic Hall Import",
+    purchase: 280,
+    selling: 900,
+    quantity: 18,
+    min_stock: 6,
+    expiry: daysAhead(45),
+  }); // expiring soon
+  await addProduct({
+    kind: "accessory",
+    category: "accessory",
+    categoryName: "Accessoires",
+    name: "Kit réparation lunettes",
+    brand: "El Bassar (maison)",
+    supplier: "Optic Hall Import",
+    purchase: 180,
+    selling: 750,
+    quantity: 12,
+    min_stock: 5,
+  });
+  await addProduct({
+    kind: "contact",
+    category: "accessory",
+    categoryName: "Lentilles de contact",
+    name: "Lentilles Acuvue Oasys (boîte 6)",
+    brand: "Acuvue",
+    reference: "OASYS-6",
+    supplier: "Optic Hall Import",
+    purchase: 1900,
+    selling: 3500,
+    quantity: 14,
+    min_stock: 6,
+    expiry: daysAhead(380),
+  });
+  await addProduct({
+    kind: "contact",
+    category: "accessory",
+    categoryName: "Lentilles de contact",
+    name: "Lentilles Biofinity (boîte 3)",
+    brand: "Biofinity",
+    reference: "BIO-3",
+    supplier: "Optic Hall Import",
+    purchase: 1600,
+    selling: 3000,
+    quantity: 3,
+    min_stock: 5,
+    expiry: daysAhead(30),
+  }); // low + expiring
+  await addProduct({
+    kind: "contact",
+    category: "accessory",
+    categoryName: "Lentilles de contact",
+    name: "Solution Renu 360ml",
+    brand: "Bausch+Lomb",
+    reference: "RENU-360",
+    supplier: "Optic Hall Import",
+    purchase: 700,
+    selling: 1400,
+    quantity: 22,
+    min_stock: 8,
+    expiry: daysAhead(120),
+  });
+  await addProduct({
+    kind: "contact",
+    category: "accessory",
+    categoryName: "Lentilles de contact",
+    name: "Gouttes hydratantes 10ml",
+    brand: "Bausch+Lomb",
+    reference: "DROPS-10",
+    supplier: "Optic Hall Import",
+    purchase: 320,
+    selling: 850,
+    quantity: 16,
+    min_stock: 6,
+    expiry: daysAhead(-10),
+  }); // already expired
 
   // Services (no stock).
-  await addProduct({ kind: "service", category: "accessory", item_type: "service", name: "Examen de vue", selling: 1500, purchase: 0, quantity: 0, min_stock: 0 });
-  await addProduct({ kind: "service", category: "accessory", item_type: "service", name: "Montage de verres", selling: 800, purchase: 0, quantity: 0, min_stock: 0 });
-  await addProduct({ kind: "service", category: "accessory", item_type: "service", name: "Réparation monture", selling: 1200, purchase: 0, quantity: 0, min_stock: 0 });
-  await addProduct({ kind: "service", category: "accessory", item_type: "service", name: "Ajustement / réglage", selling: 400, purchase: 0, quantity: 0, min_stock: 0 });
-  await addProduct({ kind: "service", category: "accessory", item_type: "service", name: "Adaptation lentilles", selling: 1800, purchase: 0, quantity: 0, min_stock: 0 });
+  await addProduct({
+    kind: "service",
+    category: "accessory",
+    item_type: "service",
+    name: "Examen de vue",
+    selling: 1500,
+    purchase: 0,
+    quantity: 0,
+    min_stock: 0,
+  });
+  await addProduct({
+    kind: "service",
+    category: "accessory",
+    item_type: "service",
+    name: "Montage de verres",
+    selling: 800,
+    purchase: 0,
+    quantity: 0,
+    min_stock: 0,
+  });
+  await addProduct({
+    kind: "service",
+    category: "accessory",
+    item_type: "service",
+    name: "Réparation monture",
+    selling: 1200,
+    purchase: 0,
+    quantity: 0,
+    min_stock: 0,
+  });
+  await addProduct({
+    kind: "service",
+    category: "accessory",
+    item_type: "service",
+    name: "Ajustement / réglage",
+    selling: 400,
+    purchase: 0,
+    quantity: 0,
+    min_stock: 0,
+  });
+  await addProduct({
+    kind: "service",
+    category: "accessory",
+    item_type: "service",
+    name: "Adaptation lentilles",
+    selling: 1800,
+    purchase: 0,
+    quantity: 0,
+    min_stock: 0,
+  });
 
   const framesOptical = sellables.filter((s) => s.kind === "frame_optical");
   const framesSun = sellables.filter((s) => s.kind === "frame_sun");
   const lenses = sellables.filter((s) => s.kind === "lens");
-  const accessories = sellables.filter((s) => s.kind === "accessory" || s.kind === "contact");
-  const svcExam = sellables.find((s) => s.kind === "service" && s.description === "Examen de vue")!;
-  const svcMontage = sellables.find((s) => s.kind === "service" && s.description === "Montage de verres")!;
+  const accessories = sellables.filter(
+    (s) => s.kind === "accessory" || s.kind === "contact",
+  );
+  const svcExam = sellables.find(
+    (s) => s.kind === "service" && s.description === "Examen de vue",
+  )!;
+  const svcMontage = sellables.find(
+    (s) => s.kind === "service" && s.description === "Montage de verres",
+  )!;
 
   console.info(`[seed] catalog: ${sellables.length} sellable lines`);
 
   // ── 6. Patients (+ prescriptions, custom tags, activity) ──────────────────
-  interface SeedPatient { id: number; name: string; payerId: number | null; coverage: number; rxIds: number[]; }
+  interface SeedPatient {
+    id: number;
+    name: string;
+    payerId: number | null;
+    coverage: number;
+    rxIds: number[];
+  }
   const patients: SeedPatient[] = [];
 
   for (let i = 0; i < 30; i++) {
@@ -439,18 +1272,30 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
       full_name: name,
       phone: phone(),
       phone2: chance(0.2) ? phone() : null,
-      email: chance(0.4) ? `${fname.toLowerCase()}.${randInt(1, 999)}@gmail.com` : null,
+      email: chance(0.4)
+        ? `${fname.toLowerCase()}.${randInt(1, 999)}@gmail.com`
+        : null,
       address: `${randInt(1, 80)} ${pick(STREETS)}, ${pick(CITIES)}`,
       date_of_birth: dob,
       national_id: chance(0.7) ? nin() : null,
       default_payer_id: payer?.id ?? null,
       default_coverage_pct: payer?.cov ?? 0,
       insurance_policy_no: payer ? policyNo(payer.prefix) : null,
-      notes: chance(0.25) ? pick(["Client fidèle.", "Préfère être appelé l'après-midi.", "Sensible à la lumière.", "Porteur de lentilles depuis 2 ans."]) : null,
+      notes: chance(0.25)
+        ? pick([
+            "Client fidèle.",
+            "Préfère être appelé l'après-midi.",
+            "Sensible à la lumière.",
+            "Porteur de lentilles depuis 2 ans.",
+          ])
+        : null,
     });
 
     // Backdate the created_at so the timeline/aging looks real, and log it.
-    await db.execute("UPDATE patients SET created_at = $1, updated_at = $1 WHERE id = $2", [ymdhms(createdAt), id]);
+    await db.execute(
+      "UPDATE patients SET created_at = $1, updated_at = $1 WHERE id = $2",
+      [ymdhms(createdAt), id],
+    );
     await logActivity(id, "created", "Fiche client créée", id).catch(() => {});
 
     // Custom client tags.
@@ -461,7 +1306,10 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
     if (chance(0.2)) tags.push("À rappeler");
     if (tags.length) {
       const meta = attr.get("client_tags");
-      if (meta) await setPatientValues(id, [{ attribute_id: meta.id, field_type: meta.field_type, value: tags }]);
+      if (meta)
+        await setPatientValues(id, [
+          { attribute_id: meta.id, field_type: meta.field_type, value: tags },
+        ]);
     }
 
     // Prescriptions for ~70% of adults (kids get one too sometimes).
@@ -472,12 +1320,29 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
       for (let r = 0; r < nRx; r++) {
         const examDate = daysAgo(randInt(10, 700) - r * 200);
         const presbyope = age >= 45;
-        const rxId = await createPrescription(makeRx(id, ymd(examDate < createdAt ? createdAt : examDate), presbyope));
+        const rxId = await createPrescription(
+          makeRx(
+            id,
+            ymd(examDate < createdAt ? createdAt : examDate),
+            presbyope,
+          ),
+        );
         rxIds.push(rxId);
-        await logActivity(id, "prescription", "Ordonnance enregistrée", rxId).catch(() => {});
+        await logActivity(
+          id,
+          "prescription",
+          "Ordonnance enregistrée",
+          rxId,
+        ).catch(() => {});
       }
     }
-    patients.push({ id, name, payerId: payer?.id ?? null, coverage: payer?.cov ?? 0, rxIds });
+    patients.push({
+      id,
+      name,
+      payerId: payer?.id ?? null,
+      coverage: payer?.cov ?? 0,
+      rxIds,
+    });
   }
 
   console.info(`[seed] ${patients.length} patients`);
@@ -487,20 +1352,51 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
     // A past, completed exam — link a prescription if the patient has one.
     if (chance(0.7)) {
       const d = daysAgo(randInt(5, 160));
-      const apptId = await createAppointment({ patient_id: p.id, starts_at: at(d, randInt(9, 16), pick([0, 30])), duration_min: 30, optometrist: pick(OPTOMETRISTS), reason: "Examen de vue" });
-      if (p.rxIds.length && chance(0.6)) await linkAppointmentPrescription(apptId, p.rxIds[0]);
-      else await setAppointmentStatus(apptId, pick(["done", "done", "no_show", "cancelled"]));
-      await logActivity(p.id, "appointment", "Rendez-vous", apptId).catch(() => {});
+      const apptId = await createAppointment({
+        patient_id: p.id,
+        starts_at: at(d, randInt(9, 16), pick([0, 30])),
+        duration_min: 30,
+        optometrist: pick(OPTOMETRISTS),
+        reason: "Examen de vue",
+      });
+      if (p.rxIds.length && chance(0.6))
+        await linkAppointmentPrescription(apptId, p.rxIds[0]);
+      else
+        await setAppointmentStatus(
+          apptId,
+          pick(["done", "done", "no_show", "cancelled"]),
+        );
+      await logActivity(p.id, "appointment", "Rendez-vous", apptId).catch(
+        () => {},
+      );
     }
     // An upcoming booked appointment for some.
     if (chance(0.4)) {
       const d = daysAhead(randInt(1, 25));
-      await createAppointment({ patient_id: p.id, starts_at: at(d, randInt(9, 16), pick([0, 30])), duration_min: 30, optometrist: pick(OPTOMETRISTS), reason: pick(["Contrôle annuel", "Adaptation lentilles", "Renouvellement", "Examen de vue"]) });
+      await createAppointment({
+        patient_id: p.id,
+        starts_at: at(d, randInt(9, 16), pick([0, 30])),
+        duration_min: 30,
+        optometrist: pick(OPTOMETRISTS),
+        reason: pick([
+          "Contrôle annuel",
+          "Adaptation lentilles",
+          "Renouvellement",
+          "Examen de vue",
+        ]),
+      });
     }
   }
 
   // ── 8. Sales (the heart: exercises every state) ───────────────────────────
-  const PAY_METHODS = ["cash", "cash", "cash", "card", "cheque", "transfer"] as const;
+  const PAY_METHODS = [
+    "cash",
+    "cash",
+    "cash",
+    "card",
+    "cheque",
+    "transfer",
+  ] as const;
 
   const reserve = (s: Sellable, qty: number): boolean => {
     if (s.avail < qty) return false;
@@ -508,10 +1404,23 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
     return true;
   };
 
-  interface BuiltItem { product_id: number | null; variant_id: number | null; description: string; unit_price: number; quantity: number; item_discount: number; }
+  interface BuiltItem {
+    product_id: number | null;
+    variant_id: number | null;
+    description: string;
+    unit_price: number;
+    quantity: number;
+    item_discount: number;
+  }
 
   // Tracks created sales so we can later attach returns / store-credit redemption.
-  interface CreatedSale { saleId: number; patientIdx: number; date: Date; hasLens: boolean; method: string; }
+  interface CreatedSale {
+    saleId: number;
+    patientIdx: number;
+    date: Date;
+    hasLens: boolean;
+    method: string;
+  }
   const created: CreatedSale[] = [];
 
   async function makeSale(args: {
@@ -529,10 +1438,15 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
     note?: string | null;
   }): Promise<number | null> {
     if (!args.items.length) return null;
-    const goods = args.items.reduce((sum, it) => sum + Math.max(0, it.unit_price * it.quantity - it.item_discount), 0);
+    const goods = args.items.reduce(
+      (sum, it) =>
+        sum + Math.max(0, it.unit_price * it.quantity - it.item_discount),
+      0,
+    );
     let initial = 0;
     if (args.payAll) initial = BIG;
-    else if (args.payFraction != null) initial = Math.round(goods * args.payFraction);
+    else if (args.payFraction != null)
+      initial = Math.round(goods * args.payFraction);
 
     const res = await commands.createSale({
       patient_id: args.patient.id,
@@ -552,9 +1466,22 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
       return null;
     }
     const saleId = res.data;
-    const hasLens = args.items.some((it) => lenses.some((l) => l.product_id === it.product_id));
-    created.push({ saleId, patientIdx: patients.indexOf(args.patient), date: args.date, hasLens, method: args.method });
-    await logActivity(args.patient.id, "sale", "Vente enregistrée", saleId).catch(() => {});
+    const hasLens = args.items.some((it) =>
+      lenses.some((l) => l.product_id === it.product_id),
+    );
+    created.push({
+      saleId,
+      patientIdx: patients.indexOf(args.patient),
+      date: args.date,
+      hasLens,
+      method: args.method,
+    });
+    await logActivity(
+      args.patient.id,
+      "sale",
+      "Vente enregistrée",
+      saleId,
+    ).catch(() => {});
     return saleId;
   }
 
@@ -564,17 +1491,47 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
     const frame = pick(framePool);
     if (!reserve(frame, 1)) return null;
     const items: BuiltItem[] = [
-      { product_id: frame.product_id, variant_id: frame.variant_id, description: frame.description, unit_price: frame.unit_price, quantity: 1, item_discount: chance(0.15) ? da(randInt(3, 10) * 100) : 0 },
+      {
+        product_id: frame.product_id,
+        variant_id: frame.variant_id,
+        description: frame.description,
+        unit_price: frame.unit_price,
+        quantity: 1,
+        item_discount: chance(0.15) ? da(randInt(3, 10) * 100) : 0,
+      },
     ];
     // Optical glasses always get lenses; sunglasses get RX lenses ~30% of the time.
     if (!sun || chance(0.3)) {
       const lens = pick(lenses);
       if (reserve(lens, 1)) {
-        items.push({ product_id: lens.product_id, variant_id: null, description: lens.description, unit_price: lens.unit_price, quantity: 1, item_discount: 0 });
-        if (chance(0.6)) items.push({ product_id: svcMontage.product_id, variant_id: null, description: svcMontage.description, unit_price: svcMontage.unit_price, quantity: 1, item_discount: 0 });
+        items.push({
+          product_id: lens.product_id,
+          variant_id: null,
+          description: lens.description,
+          unit_price: lens.unit_price,
+          quantity: 1,
+          item_discount: 0,
+        });
+        if (chance(0.6))
+          items.push({
+            product_id: svcMontage.product_id,
+            variant_id: null,
+            description: svcMontage.description,
+            unit_price: svcMontage.unit_price,
+            quantity: 1,
+            item_discount: 0,
+          });
       }
     }
-    if (chance(0.3)) items.push({ product_id: svcExam.product_id, variant_id: null, description: svcExam.description, unit_price: svcExam.unit_price, quantity: 1, item_discount: 0 });
+    if (chance(0.3))
+      items.push({
+        product_id: svcExam.product_id,
+        variant_id: null,
+        description: svcExam.description,
+        unit_price: svcExam.unit_price,
+        quantity: 1,
+        item_discount: 0,
+      });
     return items;
   }
 
@@ -583,7 +1540,15 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
     const items: BuiltItem[] = [];
     for (const a of chosen) {
       const qty = a.kind === "contact" ? randInt(1, 2) : 1;
-      if (reserve(a, qty)) items.push({ product_id: a.product_id, variant_id: a.variant_id, description: a.description, unit_price: a.unit_price, quantity: qty, item_discount: 0 });
+      if (reserve(a, qty))
+        items.push({
+          product_id: a.product_id,
+          variant_id: a.variant_id,
+          description: a.description,
+          unit_price: a.unit_price,
+          quantity: qty,
+          item_discount: 0,
+        });
     }
     return items.length ? items : null;
   }
@@ -619,58 +1584,97 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
     const stateRoll = rand();
     let payAll = false;
     let payFraction: number | undefined;
-    if (stateRoll < 0.55) payAll = true; // fully paid
-    else if (stateRoll < 0.85) payFraction = 0.3 + rand() * 0.4; // partial (outstanding)
+    if (stateRoll < 0.55)
+      payAll = true; // fully paid
+    else if (stateRoll < 0.85)
+      payFraction = 0.3 + rand() * 0.4; // partial (outstanding)
     else payFraction = 0; // unpaid
 
     // Occasional discount.
     let discountType: "amount" | "percent" | undefined;
     let discountValue: number | undefined;
     const dRoll = rand();
-    if (dRoll < 0.18) { discountType = "percent"; discountValue = pick([500, 1000, 1500]); }
-    else if (dRoll < 0.28) { discountType = "amount"; discountValue = da(randInt(5, 20) * 100); }
+    if (dRoll < 0.18) {
+      discountType = "percent";
+      discountValue = pick([500, 1000, 1500]);
+    } else if (dRoll < 0.28) {
+      discountType = "amount";
+      discountValue = da(randInt(5, 20) * 100);
+    }
 
     const saleId = await makeSale({
-      patient, items, date, method, prescriptionId,
-      discountType, discountValue,
-      payAll, payFraction,
+      patient,
+      items,
+      date,
+      method,
+      prescriptionId,
+      discountType,
+      discountValue,
+      payAll,
+      payFraction,
       payerId: useInsurer ? patient.payerId : null,
       coverage: useInsurer ? patient.coverage : null,
-      note: chance(0.15) ? pick(["Livraison sous 7 jours.", "Client pressé.", "Renouvellement monture."]) : null,
+      note: chance(0.15)
+        ? pick([
+            "Livraison sous 7 jours.",
+            "Client pressé.",
+            "Renouvellement monture.",
+          ])
+        : null,
     });
     if (saleId == null) continue;
     salesMade++;
 
     // For partial sales, sometimes add a follow-up installment (payment history).
     if (payFraction != null && payFraction > 0 && chance(0.5)) {
-      const pay = await commands.recordPayment(saleId, da(randInt(10, 40) * 100), pick(PAY_METHODS), "Acompte");
-      if (pay.status === "ok") await logActivity(patient.id, "payment", "Acompte reçu", saleId).catch(() => {});
+      const pay = await commands.recordPayment(
+        saleId,
+        da(randInt(10, 40) * 100),
+        pick(PAY_METHODS),
+        "Acompte",
+      );
+      if (pay.status === "ok")
+        await logActivity(patient.id, "payment", "Acompte reçu", saleId).catch(
+          () => {},
+        );
     }
   }
 
   console.info(`[seed] ${salesMade} sales created`);
 
   // ── 9. Progress lab jobs (auto-created for lens sales) ────────────────────
-  const jobRows = await db.select<{ id: number; sale_id: number }[]>("SELECT id, sale_id FROM jobs");
+  const jobRows = await db.select<{ id: number; sale_id: number }[]>(
+    "SELECT id, sale_id FROM jobs",
+  );
   for (const job of jobRows) {
     const sale = created.find((c) => c.saleId === job.sale_id);
-    const ageDays = sale ? Math.round((NOW.getTime() - sale.date.getTime()) / DAY) : randInt(1, 60);
+    const ageDays = sale
+      ? Math.round((NOW.getTime() - sale.date.getTime()) / DAY)
+      : randInt(1, 60);
     // Older orders are further along the pipeline.
     let status: JobStatus;
-    if (ageDays > 25) status = pick<JobStatus>(["collected", "collected", "ready"]);
-    else if (ageDays > 12) status = pick<JobStatus>(["ready", "edging", "collected"]);
+    if (ageDays > 25)
+      status = pick<JobStatus>(["collected", "collected", "ready"]);
+    else if (ageDays > 12)
+      status = pick<JobStatus>(["ready", "edging", "collected"]);
     else if (ageDays > 5) status = pick<JobStatus>(["edging", "at_lab"]);
     else status = pick<JobStatus>(["ordered", "at_lab"]);
 
     const orderedAt = sale ? sale.date : daysAgo(ageDays);
     const expected = new Date(orderedAt.getTime() + randInt(5, 12) * DAY);
-    await updateJobDetails(job.id, { lab: pick(LABS), expected_ready: ymd(expected), notes: chance(0.2) ? "Verres en rupture côté labo." : null });
+    await updateJobDetails(job.id, {
+      lab: pick(LABS),
+      expected_ready: ymd(expected),
+      notes: chance(0.2) ? "Verres en rupture côté labo." : null,
+    });
     if (status !== "ordered") await updateJobStatus(job.id, status);
   }
   console.info(`[seed] ${jobRows.length} lab jobs progressed`);
 
   // ── 10. Progress insurance claims (auto-created for payer sales) ──────────
-  const claimRows = await db.select<{ id: number; covered_amount: number }[]>("SELECT id, covered_amount FROM claims");
+  const claimRows = await db.select<{ id: number; covered_amount: number }[]>(
+    "SELECT id, covered_amount FROM claims",
+  );
   for (const claim of claimRows) {
     const roll = rand();
     const ref = `SIN-${randInt(100000, 999999)}`;
@@ -680,7 +1684,10 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
       await updateClaimStatus(claim.id, "submitted", ref);
     } else if (roll < 0.65) {
       await updateClaimStatus(claim.id, "submitted", ref);
-      await recordClaimPayment(claim.id, Math.round(claim.covered_amount * (0.4 + rand() * 0.3))); // → partial
+      await recordClaimPayment(
+        claim.id,
+        Math.round(claim.covered_amount * (0.4 + rand() * 0.3)),
+      ); // → partial
     } else if (roll < 0.9) {
       await updateClaimStatus(claim.id, "submitted", ref);
       await recordClaimPayment(claim.id, claim.covered_amount); // → paid
@@ -702,10 +1709,17 @@ function diopter(min: number, max: number): number {
   return Math.round((min + randInt(0, steps) * 0.25) * 100) / 100;
 }
 function makeRx(patientId: number, examDate: string, presbyope: boolean) {
-  const lensType = presbyope ? pick(["progressive", "progressive", "bifocal"]) : pick(["single-vision", "single-vision", "progressive"]);
-  const add = presbyope || lensType !== "single-vision" ? diopter(0.75, 2.5) : null;
+  const lensType = presbyope
+    ? pick(["progressive", "progressive", "bifocal"])
+    : pick(["single-vision", "single-vision", "progressive"]);
+  const add =
+    presbyope || lensType !== "single-vision" ? diopter(0.75, 2.5) : null;
   const exam = new Date(examDate);
-  const expiry = new Date(exam.getFullYear() + 2, exam.getMonth(), exam.getDate());
+  const expiry = new Date(
+    exam.getFullYear() + 2,
+    exam.getMonth(),
+    exam.getDate(),
+  );
   const hasCyl = chance(0.6);
   return {
     patient_id: patientId,
@@ -721,8 +1735,12 @@ function makeRx(patientId: number, examDate: string, presbyope: boolean) {
     l_add: add,
     l_pd: randInt(29, 34),
     lens_type: lensType,
-    r_prism: null, r_base: null, r_seg_height: lensType === "progressive" ? randInt(14, 20) : null,
-    l_prism: null, l_base: null, l_seg_height: lensType === "progressive" ? randInt(14, 20) : null,
+    r_prism: null,
+    r_base: null,
+    r_seg_height: lensType === "progressive" ? randInt(14, 20) : null,
+    l_prism: null,
+    l_base: null,
+    l_seg_height: lensType === "progressive" ? randInt(14, 20) : null,
     prescriber: pick(PRESCRIBERS),
     expiry_date: ymd(expiry),
     notes: chance(0.2) ? "Renouvellement, pas de changement majeur." : null,
@@ -738,24 +1756,42 @@ async function seedReturns(
   const lensIds = new Set(lenses.map((l) => l.product_id));
   // Pick fully/partly paid sales old enough to have a return, preferring those
   // with a returnable physical (non-lens, non-service) item.
-  const candidates = [...created].sort((a, b) => a.date.getTime() - b.date.getTime());
+  const candidates = [...created].sort(
+    (a, b) => a.date.getTime() - b.date.getTime(),
+  );
 
   let refundsDone = 0;
 
   for (const c of candidates) {
     if (refundsDone >= 1) break;
-    const items = await db.select<{ id: number; product_id: number | null; quantity: number; item_type: string | null }[]>(
+    const items = await db.select<
+      {
+        id: number;
+        product_id: number | null;
+        quantity: number;
+        item_type: string | null;
+      }[]
+    >(
       `SELECT si.id, si.product_id, si.quantity, p.item_type
        FROM sale_items si LEFT JOIN products p ON p.id = si.product_id
        WHERE si.sale_id = $1`,
       [c.saleId],
     );
     const returnable = items.find(
-      (it) => it.product_id != null && it.item_type !== "service" && !lensIds.has(it.product_id) && it.quantity > 0,
+      (it) =>
+        it.product_id != null &&
+        it.item_type !== "service" &&
+        !lensIds.has(it.product_id) &&
+        it.quantity > 0,
     );
     if (!returnable) continue;
 
-    const r = await commands.createReturn({ sale_id: c.saleId, method: "refund", notes: "Monture ne convenait pas — remboursement.", items: [{ sale_item_id: returnable.id, quantity: 1 }] });
+    const r = await commands.createReturn({
+      sale_id: c.saleId,
+      method: "refund",
+      notes: "Monture ne convenait pas — remboursement.",
+      items: [{ sale_item_id: returnable.id, quantity: 1 }],
+    });
     if (r.status === "ok") refundsDone++;
   }
 }

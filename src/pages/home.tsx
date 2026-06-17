@@ -102,117 +102,126 @@ export default function HomePage() {
       {!simpleMode && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
-          title={t("home.todaysSales")}
-          value={formatDZD(stats?.todaySalesTotal, symbol)}
-          icon={<DollarSign className="size-5" />}
-          loading={isLoading}
-        />
-        <StatCard
-          title={t("home.invoicesToday")}
-          value={String(stats?.todayInvoiceCount ?? 0)}
-          icon={<Receipt className="size-5" />}
-          loading={isLoading}
-        />
-        <StatCard
-          title={t("home.lowStockItems")}
-          value={String(stats?.lowStockCount ?? 0)}
-          icon={<AlertTriangle className="size-5" />}
-          accent={stats && stats.lowStockCount > 0 ? "warning" : undefined}
-          loading={isLoading}
-        />
-        <StatCard
-          title={t("home.outstandingBalance")}
-          value={formatDZD(stats?.outstandingTotal, symbol)}
-          icon={<Wallet className="size-5" />}
-          loading={isLoading}
-        />
+            title={t("home.todaysSales")}
+            value={formatDZD(stats?.todaySalesTotal, symbol)}
+            sub={t("home.collectedToday", {
+              amount: formatDZD(stats?.todayCollected, symbol),
+            })}
+            icon={<DollarSign className="size-5" />}
+            loading={isLoading}
+          />
+          <StatCard
+            title={t("home.invoicesToday")}
+            value={String(stats?.todayInvoiceCount ?? 0)}
+            icon={<Receipt className="size-5" />}
+            loading={isLoading}
+          />
+          <StatCard
+            title={t("home.lowStockItems")}
+            value={String(stats?.lowStockCount ?? 0)}
+            icon={<AlertTriangle className="size-5" />}
+            accent={stats && stats.lowStockCount > 0 ? "warning" : undefined}
+            loading={isLoading}
+          />
+          <StatCard
+            title={t("home.outstandingBalance")}
+            value={formatDZD(stats?.outstandingTotal, symbol)}
+            icon={<Wallet className="size-5" />}
+            loading={isLoading}
+          />
         </div>
       )}
 
       {!simpleMode && (
-      <Card className="overflow-hidden">
-        <CardHeader>
-          <CardTitle>{t("home.revenueLast14")}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {revenueQuery.isError ? (
-            <ErrorState
-              className="border-0"
-              onRetry={() => revenueQuery.refetch()}
-            />
-          ) : chartData.every((d) => d.revenue === 0) ? (
-            <p className="text-muted-foreground py-12 text-center text-sm">
-              {t("home.noSalesYet")}
-            </p>
-          ) : (
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart
-                data={chartData}
-                margin={{ top: 8, right: 8, left: 8, bottom: 0 }}
-              >
-                <defs>
-                  <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop
-                      offset="0%"
-                      stopColor="var(--primary)"
-                      stopOpacity={0.95}
-                    />
-                    <stop
-                      offset="100%"
-                      stopColor="var(--primary)"
-                      stopOpacity={0.55}
-                    />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid
-                  strokeDasharray="2 6"
-                  vertical={false}
-                  stroke="var(--border)"
-                />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickMargin={10}
-                />
-                <YAxis
-                  width={48}
-                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v) => {
-                    const d = Number(v) / 100; // centimes -> dinar
-                    return d >= 1000 ? `${d / 1000}k` : String(d);
-                  }}
-                />
-                <Tooltip
-                  cursor={{ fill: "var(--accent)", opacity: 0.5, radius: 6 }}
-                  formatter={(value) => [
-                    formatDZD(Number(value), symbol),
-                    t("home.revenue"),
-                  ]}
-                  contentStyle={{
-                    background: "var(--popover)",
-                    border: "1px solid var(--border)",
-                    borderRadius: 12,
-                    boxShadow: "var(--shadow-lg)",
-                    color: "var(--popover-foreground)",
-                    fontSize: 12,
-                  }}
-                  labelStyle={{ fontWeight: 600, marginBottom: 2 }}
-                />
-                <Bar
-                  dataKey="revenue"
-                  fill="url(#revenueFill)"
-                  radius={[6, 6, 0, 0]}
-                  maxBarSize={40}
-                />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
-        </CardContent>
-      </Card>
+        <Card className="overflow-hidden">
+          <CardHeader>
+            <CardTitle>{t("home.revenueLast14")}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {revenueQuery.isError ? (
+              <ErrorState
+                className="border-0"
+                onRetry={() => revenueQuery.refetch()}
+              />
+            ) : chartData.every((d) => d.revenue === 0) ? (
+              <p className="text-muted-foreground py-12 text-center text-sm">
+                {t("home.noSalesYet")}
+              </p>
+            ) : (
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart
+                  data={chartData}
+                  margin={{ top: 8, right: 8, left: 8, bottom: 0 }}
+                >
+                  <defs>
+                    <linearGradient
+                      id="revenueFill"
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop
+                        offset="0%"
+                        stopColor="var(--primary)"
+                        stopOpacity={0.95}
+                      />
+                      <stop
+                        offset="100%"
+                        stopColor="var(--primary)"
+                        stopOpacity={0.55}
+                      />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid
+                    strokeDasharray="2 6"
+                    vertical={false}
+                    stroke="var(--border)"
+                  />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickMargin={10}
+                  />
+                  <YAxis
+                    width={48}
+                    tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(v) => {
+                      const d = Number(v) / 100; // centimes -> dinar
+                      return d >= 1000 ? `${d / 1000}k` : String(d);
+                    }}
+                  />
+                  <Tooltip
+                    cursor={{ fill: "var(--accent)", opacity: 0.5, radius: 6 }}
+                    formatter={(value) => [
+                      formatDZD(Number(value), symbol),
+                      t("home.revenue"),
+                    ]}
+                    contentStyle={{
+                      background: "var(--popover)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 12,
+                      boxShadow: "var(--shadow-lg)",
+                      color: "var(--popover-foreground)",
+                      fontSize: 12,
+                    }}
+                    labelStyle={{ fontWeight: 600, marginBottom: 2 }}
+                  />
+                  <Bar
+                    dataKey="revenue"
+                    fill="url(#revenueFill)"
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={40}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -311,7 +320,7 @@ export default function HomePage() {
                           #{s.id}
                         </Link>
                       </TableCell>
-                      <TableCell>{s.patient_name}</TableCell>
+                      <TableCell>{s.patient_name ?? t("sales.walkIn")}</TableCell>
                       <TableCell>{formatDate(s.sale_date)}</TableCell>
                       <TableCell className="text-warning text-right font-semibold tabular-nums">
                         {formatDZD(s.balance, symbol)}
@@ -446,7 +455,11 @@ function QuickActions() {
           label={t("quick.newSale")}
           primary
         />
-        <QuickAction to="/patients" icon={UserPlus} label={t("quick.findPatient")} />
+        <QuickAction
+          to="/patients"
+          icon={UserPlus}
+          label={t("quick.findPatient")}
+        />
         <QuickAction
           to="/appointments"
           icon={CalendarDays}
@@ -475,7 +488,7 @@ function QuickAction({
       className={cn(
         "group focus-visible:ring-ring/60 flex min-h-[7.5rem] flex-col items-center justify-center gap-3 rounded-2xl border p-5 text-center transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-2 focus-visible:outline-none",
         primary
-          ? "bg-primary text-primary-foreground border-transparent hover:bg-primary/90"
+          ? "bg-primary text-primary-foreground hover:bg-primary/90 border-transparent"
           : "hover:bg-accent",
       )}
     >
@@ -495,12 +508,14 @@ function QuickAction({
 function StatCard({
   title,
   value,
+  sub,
   icon,
   accent,
   loading,
 }: {
   title: string;
   value: string;
+  sub?: string;
   icon: React.ReactNode;
   accent?: "warning";
   loading?: boolean;
@@ -519,6 +534,11 @@ function StatCard({
           ) : (
             <p className="text-[1.75rem] leading-none font-semibold tracking-tight tabular-nums">
               {value}
+            </p>
+          )}
+          {!loading && sub && (
+            <p className="text-muted-foreground truncate text-xs tabular-nums">
+              {sub}
             </p>
           )}
         </div>

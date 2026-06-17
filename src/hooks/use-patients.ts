@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createPatient,
-  deletePatient,
+  archivePatient,
+  mergePatients,
   getPatient,
   getPatientStatement,
   getPatientSummary,
@@ -84,11 +85,24 @@ export function useUpdatePatient() {
   });
 }
 
-export function useDeletePatient() {
+export function useArchivePatient() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => deletePatient(id),
+    mutationFn: (id: number) => archivePatient(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: patientKeys.all }),
+  });
+}
+
+export function useMergePatients() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ keepId, dupId }: { keepId: number; dupId: number }) =>
+      mergePatients(keepId, dupId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: patientKeys.all });
+      qc.invalidateQueries({ queryKey: ["sales"] });
+      qc.invalidateQueries({ queryKey: ["prescriptions"] });
+    },
   });
 }
 
@@ -106,8 +120,12 @@ export function useCreatePrescription() {
     mutationFn: (input: PrescriptionInput) => createPrescription(input),
     onSuccess: (id, input) => {
       void logActivity(input.patient_id, "prescription", null, id);
-      qc.invalidateQueries({ queryKey: patientKeys.prescriptions(input.patient_id) });
-      qc.invalidateQueries({ queryKey: ["patient-activity", input.patient_id] });
+      qc.invalidateQueries({
+        queryKey: patientKeys.prescriptions(input.patient_id),
+      });
+      qc.invalidateQueries({
+        queryKey: ["patient-activity", input.patient_id],
+      });
     },
   });
 }

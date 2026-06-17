@@ -81,8 +81,11 @@ export function useSetSupplierArchived() {
 export function useRecordSupplierPayment() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { supplierId: number; amount: number; note?: string | null }) =>
-      recordSupplierPayment(args),
+    mutationFn: (args: {
+      supplierId: number;
+      amount: number;
+      note?: string | null;
+    }) => recordSupplierPayment(args),
     onSuccess: (_, args) => {
       invalidate(qc, args.supplierId);
       qc.invalidateQueries({ queryKey: ["supplier-balances"] });

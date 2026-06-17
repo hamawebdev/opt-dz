@@ -95,7 +95,9 @@ function numberProps(field: {
     // Render blank (not 0) when empty so the user types straight into a clear field.
     value: field.value ?? "",
     onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
-      field.onChange(e.target.value === "" ? undefined : Number(e.target.value)),
+      field.onChange(
+        e.target.value === "" ? undefined : Number(e.target.value),
+      ),
   };
 }
 
@@ -176,9 +178,11 @@ export default function ProductFormPage() {
         reference: product.reference ?? "",
         barcode: product.barcode ?? "",
         expiry_date: product.expiry_date ?? "",
-        category_id: product.category_id != null ? String(product.category_id) : null,
+        category_id:
+          product.category_id != null ? String(product.category_id) : null,
         brand_id: product.brand_id != null ? String(product.brand_id) : null,
-        supplier_id: product.supplier_id != null ? String(product.supplier_id) : null,
+        supplier_id:
+          product.supplier_id != null ? String(product.supplier_id) : null,
         color_id: product.color_id != null ? String(product.color_id) : null,
         purchase_price: fromCentimes(product.purchase_price),
         selling_price: fromCentimes(product.selling_price),
@@ -189,7 +193,8 @@ export default function ProductFormPage() {
   }, [product, form]);
 
   const categoryOpts = useMemo(
-    () => (categories ?? []).map((c) => ({ value: String(c.id), label: c.name })),
+    () =>
+      (categories ?? []).map((c) => ({ value: String(c.id), label: c.name })),
     [categories],
   );
   const brandOpts = useMemo(
@@ -197,7 +202,8 @@ export default function ProductFormPage() {
     [brands],
   );
   const supplierOpts = useMemo(
-    () => (suppliers ?? []).map((s) => ({ value: String(s.id), label: s.name })),
+    () =>
+      (suppliers ?? []).map((s) => ({ value: String(s.id), label: s.name })),
     [suppliers],
   );
 
@@ -283,7 +289,11 @@ export default function ProductFormPage() {
                           variant={field.value === it ? "default" : "outline"}
                           onClick={() => field.onChange(it)}
                         >
-                          {t(it === "product" ? "inventory.typeProduct" : "inventory.typeService")}
+                          {t(
+                            it === "product"
+                              ? "inventory.typeProduct"
+                              : "inventory.typeService",
+                          )}
                         </Button>
                       ))}
                     </div>
@@ -299,7 +309,10 @@ export default function ProductFormPage() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>{t("inventory.typeLabel")}</FormLabel>
-                        <Select value={field.value} onValueChange={field.onChange}>
+                        <Select
+                          value={field.value}
+                          onValueChange={field.onChange}
+                        >
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue />
@@ -455,9 +468,7 @@ export default function ProductFormPage() {
                           value={field.value ?? null}
                           onChange={field.onChange}
                           onCreate={async (name) =>
-                            String(
-                              await createSupplier.mutateAsync({ name }),
-                            )
+                            String(await createSupplier.mutateAsync({ name }))
                           }
                           placeholder={t("inventory.selectSupplier")}
                           addLabel={t("inventory.addSupplier")}
@@ -497,7 +508,9 @@ export default function ProductFormPage() {
                           field.onChange(id != null ? String(id) : null)
                         }
                       />
-                      <FormDescription>{t("colors.askManager")}</FormDescription>
+                      <FormDescription>
+                        {t("colors.askManager")}
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -546,7 +559,7 @@ export default function ProductFormPage() {
                             : t("inventory.initialQuantity")}
                         </FormLabel>
                         <FormControl>
-                          <Input {...numberProps(field)} />
+                          <Input {...numberProps(field)} disabled={isEdit} />
                         </FormControl>
                         {isEdit && (
                           <FormDescription>
@@ -562,7 +575,9 @@ export default function ProductFormPage() {
                     name="min_stock"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t("inventory.lowStockThreshold")}</FormLabel>
+                        <FormLabel>
+                          {t("inventory.lowStockThreshold")}
+                        </FormLabel>
                         <FormControl>
                           <Input {...numberProps(field)} />
                         </FormControl>

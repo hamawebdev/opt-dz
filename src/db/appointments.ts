@@ -37,6 +37,37 @@ export async function listPatientAppointments(
   );
 }
 
+/** Finds existing appointments for the same optometrist whose time window overlaps the
+ * proposed slot (active statuses only), so the UI can warn about double-booking
+ * (audit finding G2). Returns [] when no optometrist is set. */
+export async function findAppointmentConflicts(input: {
+  startsAt: string;
+  durationMin: number;
+  optometrist?: string | null;
+  excludeId?: number;
+}): Promise<AppointmentRow[]> {
+  const db = await getDb();
+  if (!input.optometrist?.trim()) return [];
+  const params: (string | number)[] = [
+    input.optometrist.trim(),
+    input.startsAt,
+    input.durationMin,
+    input.startsAt,
+  ];
+  let sql = `
+    SELECT a.*, p.full_name AS patient_name, p.code AS patient_code
+    FROM appointments a JOIN patients p ON p.id = a.patient_id
+    WHERE lower(trim(a.optometrist)) = lower(trim($1))
+      AND a.status NOT IN ('cancelled','no_show')
+      AND a.starts_at < datetime($2, '+' || $3 || ' minutes')
+      AND $4 < datetime(a.starts_at, '+' || a.duration_min || ' minutes')`;
+  if (input.excludeId != null) {
+    params.push(input.excludeId);
+    sql += ` AND a.id <> $${params.length}`;
+  }
+  return db.select<AppointmentRow[]>(sql + " ORDER BY a.starts_at", params);
+}
+
 export async function getAppointment(id: number): Promise<Appointment | null> {
   const db = await getDb();
   const rows = await db.select<Appointment[]>(
@@ -46,7 +77,9 @@ export async function getAppointment(id: number): Promise<Appointment | null> {
   return rows[0] ?? null;
 }
 
-export async function createAppointment(input: AppointmentInput): Promise<number> {
+export async function createAppointment(
+  input: AppointmentInput,
+): Promise<number> {
   const db = await getDb();
   const res = await db.execute(
     `INSERT INTO appointments (patient_id, starts_at, duration_min, optometrist, reason, notes)

@@ -1,4 +1,5 @@
-import { getDb } from "@/lib/db";
+import { getDb, unwrap } from "@/lib/db";
+import { commands } from "@/lib/bindings";
 import type { ClaimRow, ClaimStatus } from "@/types";
 
 const CLAIM_SELECT = `
@@ -9,7 +10,9 @@ const CLAIM_SELECT = `
   JOIN sales s ON s.id = c.sale_id
   JOIN patients p ON p.id = s.patient_id`;
 
-export async function listClaims(status?: ClaimStatus | null): Promise<ClaimRow[]> {
+export async function listClaims(
+  status?: ClaimStatus | null,
+): Promise<ClaimRow[]> {
   const db = await getDb();
   const where = status ? "WHERE c.status = $1" : "";
   const params = status ? [status] : [];
@@ -19,37 +22,45 @@ export async function listClaims(status?: ClaimStatus | null): Promise<ClaimRow[
   );
 }
 
-export async function getClaimForSale(saleId: number): Promise<ClaimRow | null> {
+export async function getClaimForSale(
+  saleId: number,
+): Promise<ClaimRow | null> {
   const db = await getDb();
-  const rows = await db.select<ClaimRow[]>(`${CLAIM_SELECT} WHERE c.sale_id = $1`, [saleId]);
+  const rows = await db.select<ClaimRow[]>(
+    `${CLAIM_SELECT} WHERE c.sale_id = $1`,
+    [saleId],
+  );
   return rows[0] ?? null;
 }
 
-/** Sets a claim's status (and ref), stamping submitted_at/paid_at as appropriate. */
+/** Sets a claim's status (and ref) via the Rust `set_claim_status` command, which
+ * stamps submitted_at/paid_at and, on rejection, zeroes coverage and re-bills the
+ * patient by re-syncing the sale balance (audit finding E1). */
 export async function updateClaimStatus(
   id: number,
   status: ClaimStatus,
   claimRef?: string | null,
 ): Promise<void> {
-  const db = await getDb();
-  await db.execute(
-    `UPDATE claims
-       SET status = $1,
-           claim_ref = COALESCE($2, claim_ref),
-           submitted_at = CASE WHEN $1 IN ('submitted','partial','paid') AND submitted_at IS NULL
-                               THEN datetime('now') ELSE submitted_at END,
-           paid_at = CASE WHEN $1 = 'paid' THEN datetime('now') ELSE paid_at END
-     WHERE id = $3`,
-    [status, claimRef ?? null, id],
-  );
+  unwrap(await commands.setClaimStatus(id, status, claimRef ?? null));
 }
 
-/** Records an insurer reimbursement against a claim and recomputes its status. */
-export async function recordClaimPayment(id: number, amount: number): Promise<void> {
+/** Records an insurer reimbursement against a claim and recomputes its status. The
+ * payment is clamped so cumulative paid never exceeds the covered amount (E2). */
+export async function recordClaimPayment(
+  id: number,
+  amount: number,
+): Promise<void> {
+  if (amount <= 0) throw new Error("Payment amount must be greater than 0");
   const db = await getDb();
   await db.execute("BEGIN");
   try {
-    await db.execute("UPDATE claims SET paid_amount = paid_amount + $1 WHERE id = $2", [amount, id]);
+    // Clamp so paid_amount tops out at covered_amount (no insurer overpayment).
+    await db.execute(
+      `UPDATE claims
+         SET paid_amount = MIN(covered_amount, paid_amount + $1)
+       WHERE id = $2`,
+      [amount, id],
+    );
     await db.execute(
       `UPDATE claims
          SET status = CASE WHEN paid_amount >= covered_amount THEN 'paid'

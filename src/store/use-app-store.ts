@@ -19,6 +19,10 @@ interface AppState {
    */
   simpleMode: boolean;
   setSimpleMode: (simpleMode: boolean) => void;
+  /** The staff member currently at the till — stamped onto the audit log. */
+  currentStaffId: number | null;
+  currentStaffName: string | null;
+  setCurrentStaff: (id: number | null, name: string | null) => void;
 }
 
 /**
@@ -39,6 +43,10 @@ export const useAppStore = create<AppState>()(
       setOnboarded: (onboarded) => set({ onboarded }),
       simpleMode: false,
       setSimpleMode: (simpleMode) => set({ simpleMode }),
+      currentStaffId: null,
+      currentStaffName: null,
+      setCurrentStaff: (currentStaffId, currentStaffName) =>
+        set({ currentStaffId, currentStaffName }),
     }),
     {
       name: "app-store",

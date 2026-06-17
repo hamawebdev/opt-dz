@@ -5,7 +5,9 @@ import type { Brand, Category } from "@/types";
 // fixed optical `category`/type (frame/lens/accessory) on products. Mirrors the
 // payers CRUD pattern; archiving hides a row from pickers without deleting history.
 
-export async function listCategories(includeArchived = false): Promise<Category[]> {
+export async function listCategories(
+  includeArchived = false,
+): Promise<Category[]> {
   const db = await getDb();
   const where = includeArchived ? "" : "WHERE archived = 0";
   return db.select<Category[]>(

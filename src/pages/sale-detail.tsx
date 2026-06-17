@@ -9,6 +9,7 @@ import {
   User,
   Receipt,
   RotateCcw,
+  Ban,
 } from "lucide-react";
 import { toast } from "sonner";
 import { notifyError } from "@/lib/errors";
@@ -25,12 +26,13 @@ import {
 } from "@/components/ui/table";
 import { Empty, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { PromptDialog } from "@/components/prompt-dialog";
 import { PaymentDialog } from "@/components/payment-dialog";
 import { ReturnDialog } from "@/components/return-dialog";
 import { useReturnsForSale, useReturnedQuantities } from "@/hooks/use-returns";
 import {
   useDeletePayment,
-  useDeleteSale,
+  useVoidSale,
   useSale,
   useSaleItems,
   useSalePayments,
@@ -39,17 +41,21 @@ import { useClaimForSale } from "@/hooks/use-claims";
 import { useSettings } from "@/hooks/use-settings";
 import { commands } from "@/lib/bindings";
 import { unwrap } from "@/lib/db";
+import { verifyManagerPin } from "@/lib/auth";
+import { logAudit } from "@/db/audit";
+import { useAppStore } from "@/store/use-app-store";
 import { buildReceiptLines } from "@/lib/receipt";
 import { formatDZD, formatDateTime } from "@/lib/format";
 import type { SaleStatus } from "@/types";
 
 const statusVariant: Record<
   SaleStatus,
-  "default" | "secondary" | "destructive"
+  "default" | "secondary" | "destructive" | "outline"
 > = {
   paid: "default",
   partial: "secondary",
   unpaid: "destructive",
+  void: "outline",
 };
 
 export default function SaleDetailPage() {
@@ -67,11 +73,13 @@ export default function SaleDetailPage() {
   const { data: settings } = useSettings();
   const symbol = settings?.currency_symbol;
 
-  const deleteSale = useDeleteSale();
+  const voidSale = useVoidSale();
   const deletePayment = useDeletePayment(saleId);
+  const currentStaffId = useAppStore((s) => s.currentStaffId);
+  const currentStaffName = useAppStore((s) => s.currentStaffName);
 
   const [payOpen, setPayOpen] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [voidOpen, setVoidOpen] = useState(false);
   const [paymentToDelete, setPaymentToDelete] = useState<number | null>(null);
   const [printing, setPrinting] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
@@ -108,15 +116,28 @@ export default function SaleDetailPage() {
       </Empty>
     );
 
-  async function handleDeleteSale() {
+  async function handleVoidSale(values: Record<string, string>) {
+    // Manager-PIN gate (when configured) before this destructive action.
+    if (settings?.manager_pin_hash) {
+      const ok = await verifyManagerPin(values.pin ?? "");
+      if (!ok) {
+        toast.error(t("auth.wrongPin"));
+        return;
+      }
+    }
     try {
-      await deleteSale.mutateAsync(saleId);
-      toast.success(t("sales.saleDeleted"));
-      navigate("/sales");
+      await voidSale.mutateAsync({ id: saleId, reason: values.reason || null });
+      void logAudit({
+        staffId: currentStaffId,
+        staffName: currentStaffName,
+        action: "void_sale",
+        entity: "sale",
+        entityId: saleId,
+        detail: values.reason || null,
+      });
+      toast.success(t("sales.saleVoided"));
     } catch (err) {
       notifyError(err, t("problem.actionFailed"));
-    } finally {
-      setConfirmDelete(false);
     }
   }
 
@@ -146,7 +167,7 @@ export default function SaleDetailPage() {
           <ArrowLeft className="size-4 rtl:rotate-180" /> {t("nav.sales")}
         </Button>
         <div className="flex flex-wrap gap-2">
-          {sale.balance > 0 && (
+          {sale.balance > 0 && sale.status !== "void" && (
             <Button onClick={() => setPayOpen(true)}>
               <CreditCard className="size-4" /> {t("sales.recordPayment")}
             </Button>
@@ -159,14 +180,16 @@ export default function SaleDetailPage() {
           <Button variant="outline" onClick={printReceipt} disabled={printing}>
             <Receipt className="size-4" /> {t("sales.printReceipt")}
           </Button>
-          {!!items?.length && (
+          {!!items?.length && sale.status !== "void" && (
             <Button variant="outline" onClick={() => setReturnOpen(true)}>
               <RotateCcw className="size-4" /> {t("sales.return")}
             </Button>
           )}
-          <Button variant="outline" onClick={() => setConfirmDelete(true)}>
-            <Trash2 className="text-destructive size-4" /> {t("common.delete")}
-          </Button>
+          {sale.status !== "void" && (
+            <Button variant="outline" onClick={() => setVoidOpen(true)}>
+              <Ban className="text-destructive size-4" /> {t("sales.void")}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -187,13 +210,20 @@ export default function SaleDetailPage() {
           </Badge>
         </CardHeader>
         <CardContent className="space-y-1 text-sm">
-          <Link
-            to={`/patients/${sale.patient_id}`}
-            className="flex w-fit items-center gap-2 font-medium hover:underline"
-          >
-            <User className="text-muted-foreground size-4" />{" "}
-            {sale.patient_name}
-          </Link>
+          {sale.patient_id != null ? (
+            <Link
+              to={`/patients/${sale.patient_id}`}
+              className="flex w-fit items-center gap-2 font-medium hover:underline"
+            >
+              <User className="text-muted-foreground size-4" />{" "}
+              {sale.patient_name}
+            </Link>
+          ) : (
+            <p className="flex w-fit items-center gap-2 font-medium">
+              <User className="text-muted-foreground size-4" />{" "}
+              {t("sales.walkIn")}
+            </p>
+          )}
           {sale.notes && (
             <p className="text-muted-foreground pt-2 whitespace-pre-wrap">
               {sale.notes}
@@ -409,13 +439,30 @@ export default function SaleDetailPage() {
         open={returnOpen}
         onOpenChange={setReturnOpen}
       />
-      <ConfirmDialog
-        open={confirmDelete}
-        onOpenChange={setConfirmDelete}
-        title={t("sales.deleteSaleTitle")}
-        description={t("sales.deleteSaleDesc")}
-        confirmText={t("common.delete")}
-        onConfirm={handleDeleteSale}
+      <PromptDialog
+        open={voidOpen}
+        onOpenChange={setVoidOpen}
+        title={t("sales.voidSaleTitle")}
+        description={t("sales.voidSaleDesc")}
+        fields={[
+          {
+            name: "reason",
+            label: t("sales.voidReason"),
+            placeholder: t("sales.voidReasonPlaceholder"),
+          },
+          ...(settings?.manager_pin_hash
+            ? [
+                {
+                  name: "pin",
+                  label: t("auth.managerPin"),
+                  type: "number" as const,
+                  inputMode: "numeric" as const,
+                },
+              ]
+            : []),
+        ]}
+        confirmText={t("sales.void")}
+        onSubmit={handleVoidSale}
       />
       <ConfirmDialog
         open={paymentToDelete != null}

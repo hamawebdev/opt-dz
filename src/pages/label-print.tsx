@@ -72,16 +72,22 @@ export default function LabelPrintPage() {
               <img src={job.logo} alt="" className="max-h-4 object-contain" />
             )}
             {job.name && (
-              <div className="w-full truncate text-[10px] font-medium leading-tight">
+              <div className="w-full truncate text-[10px] leading-tight font-medium">
                 {job.name}
               </div>
             )}
             {barcodeUrl && (
-              <img src={barcodeUrl} alt={job.value} className="max-h-[55%] object-contain" />
+              <img
+                src={barcodeUrl}
+                alt={job.value}
+                className="max-h-[55%] object-contain"
+              />
             )}
             <div className="flex w-full items-center justify-between px-1 text-[9px]">
               {job.sku ? <span className="truncate">{job.sku}</span> : <span />}
-              {job.price ? <span className="font-semibold">{job.price}</span> : null}
+              {job.price ? (
+                <span className="font-semibold">{job.price}</span>
+              ) : null}
             </div>
           </div>
         ))}

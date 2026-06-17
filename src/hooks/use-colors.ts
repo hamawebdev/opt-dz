@@ -31,7 +31,10 @@ export function useColorReview() {
 }
 
 export function useColorReviewCount() {
-  return useQuery({ queryKey: ["color-review-count"], queryFn: countColorReview });
+  return useQuery({
+    queryKey: ["color-review-count"],
+    queryFn: countColorReview,
+  });
 }
 
 // Colour edits can change variant/product labels and the review queue everywhere.

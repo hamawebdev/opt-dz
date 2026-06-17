@@ -1,8 +1,13 @@
 import { getDb } from "@/lib/db";
-import type { JobRow, JobStatus } from "@/types";
+import type { JobEvent, JobRow, JobStatus } from "@/types";
 
+// `overdue` flags a not-yet-collected job whose expected-ready date has passed.
 const JOB_SELECT = `
-  SELECT j.*, p.full_name AS patient_name, s.invoice_number AS invoice_number
+  SELECT j.*, p.full_name AS patient_name, s.invoice_number AS invoice_number,
+         CASE WHEN j.expected_ready IS NOT NULL
+               AND date(j.expected_ready) < date('now','localtime')
+               AND j.status <> 'collected'
+              THEN 1 ELSE 0 END AS overdue
   FROM jobs j
   JOIN patients p ON p.id = j.patient_id
   LEFT JOIN sales s ON s.id = j.sale_id`;
@@ -12,7 +17,9 @@ export interface JobListFilters {
   activeOnly?: boolean; // exclude 'collected'
 }
 
-export async function listJobs(filters: JobListFilters = {}): Promise<JobRow[]> {
+export async function listJobs(
+  filters: JobListFilters = {},
+): Promise<JobRow[]> {
   const db = await getDb();
   const where: string[] = [];
   const params: unknown[] = [];
@@ -33,9 +40,10 @@ export async function listJobs(filters: JobListFilters = {}): Promise<JobRow[]> 
 
 export async function listJobsForPatient(patientId: number): Promise<JobRow[]> {
   const db = await getDb();
-  return db.select<JobRow[]>(`${JOB_SELECT} WHERE j.patient_id = $1 ORDER BY j.id DESC`, [
-    patientId,
-  ]);
+  return db.select<JobRow[]>(
+    `${JOB_SELECT} WHERE j.patient_id = $1 ORDER BY j.id DESC`,
+    [patientId],
+  );
 }
 
 export interface CreateJobInput {
@@ -61,25 +69,72 @@ export async function createJob(input: CreateJobInput): Promise<number> {
       input.notes ?? null,
     ],
   );
-  return res.lastInsertId ?? 0;
+  const id = res.lastInsertId ?? 0;
+  if (id) {
+    await db.execute(
+      "INSERT INTO job_events (job_id, status, note) VALUES ($1, 'ordered', 'Created')",
+      [id],
+    );
+  }
+  return id;
 }
 
-/** Advances a job's status; stamps delivered_at when it reaches 'collected'. */
-export async function updateJobStatus(id: number, status: JobStatus): Promise<void> {
+/** Advances a job's status, stamps delivered_at at 'collected', and records the stage
+ * change in job_events (per-stage history) — all in one transaction (H1). */
+export async function updateJobStatus(
+  id: number,
+  status: JobStatus,
+  note?: string | null,
+): Promise<void> {
   const db = await getDb();
-  await db.execute(
-    `UPDATE jobs
-       SET status = $1,
-           delivered_at = CASE WHEN $1 = 'collected' THEN datetime('now') ELSE delivered_at END,
-           updated_at = datetime('now')
-     WHERE id = $2`,
-    [status, id],
+  await db.execute("BEGIN");
+  try {
+    await db.execute(
+      `UPDATE jobs
+         SET status = $1,
+             delivered_at = CASE WHEN $1 = 'collected' THEN datetime('now') ELSE delivered_at END,
+             updated_at = datetime('now')
+       WHERE id = $2`,
+      [status, id],
+    );
+    await db.execute(
+      "INSERT INTO job_events (job_id, status, note) VALUES ($1, $2, $3)",
+      [id, status, note ?? null],
+    );
+    await db.execute("COMMIT");
+  } catch (err) {
+    await db.execute("ROLLBACK");
+    throw err;
+  }
+}
+
+/** Stage history for a job, most recent first. */
+export async function listJobEvents(jobId: number): Promise<JobEvent[]> {
+  const db = await getDb();
+  return db.select<JobEvent[]>(
+    "SELECT * FROM job_events WHERE job_id = $1 ORDER BY created_at DESC, id DESC",
+    [jobId],
   );
+}
+
+/** Count of overdue jobs (expected-ready date passed, not yet collected) for alerts. */
+export async function countOverdueJobs(): Promise<number> {
+  const db = await getDb();
+  const rows = await db.select<{ n: number }[]>(
+    `SELECT COUNT(*) AS n FROM jobs
+     WHERE status <> 'collected' AND expected_ready IS NOT NULL
+       AND date(expected_ready) < date('now','localtime')`,
+  );
+  return rows[0]?.n ?? 0;
 }
 
 export async function updateJobDetails(
   id: number,
-  input: { lab?: string | null; expected_ready?: string | null; notes?: string | null },
+  input: {
+    lab?: string | null;
+    expected_ready?: string | null;
+    notes?: string | null;
+  },
 ): Promise<void> {
   const db = await getDb();
   await db.execute(

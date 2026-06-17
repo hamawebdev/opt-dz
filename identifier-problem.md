@@ -7,10 +7,9 @@ tauri-plugin-sql's migrator only applies migrations newer than the DB's current 
 
 I confirmed this by running your actual binary against a QueryCache error logger, which surfaced the real errors:
 
-
-["settings"]    :: no such column: key
-["categories"]  :: no such table: categories
-["sizes"]       :: no such table: sizes   … etc.
+["settings"] :: no such column: key
+["categories"] :: no such table: categories
+["sizes"] :: no such table: sizes … etc.
 The fix
 Per your choice, I changed the Tauri identifier so the POS app gets its own config directory and its own database:
 

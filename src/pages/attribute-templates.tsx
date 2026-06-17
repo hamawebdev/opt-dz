@@ -71,7 +71,8 @@ export default function AttributeTemplatesPage() {
     const tgts = allTargets?.[id] ?? [];
     if (tgts.some((x) => x.target_kind === "patient"))
       return t("attributes.patientField");
-    if (tgts.some((x) => x.target_kind === "global")) return t("attributes.global");
+    if (tgts.some((x) => x.target_kind === "global"))
+      return t("attributes.global");
     const parts = tgts.map((x) =>
       x.target_kind === "type"
         ? t(`category.${x.target_value}`)
@@ -105,7 +106,9 @@ export default function AttributeTemplatesPage() {
               <TableHead>{t("attributes.label")}</TableHead>
               <TableHead>{t("attributes.fieldType")}</TableHead>
               <TableHead>{t("attributes.appliesTo")}</TableHead>
-              <TableHead className="text-right">{t("common.actions")}</TableHead>
+              <TableHead className="text-right">
+                {t("common.actions")}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -125,7 +128,9 @@ export default function AttributeTemplatesPage() {
                     <span className="flex items-center gap-2">
                       {d.label}
                       {d.is_builtin ? (
-                        <Badge variant="outline">{t("attributes.builtin")}</Badge>
+                        <Badge variant="outline">
+                          {t("attributes.builtin")}
+                        </Badge>
                       ) : null}
                     </span>
                   </TableCell>
@@ -445,7 +450,10 @@ function AttributeDialog({
           <Button variant="outline" onClick={onClose}>
             {t("common.cancel")}
           </Button>
-          <Button onClick={save} disabled={create.isPending || update.isPending}>
+          <Button
+            onClick={save}
+            disabled={create.isPending || update.isPending}
+          >
             {t("common.save")}
           </Button>
         </DialogFooter>

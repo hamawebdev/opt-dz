@@ -37,7 +37,9 @@ export function ConfirmDialog({
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{title ?? t("confirm.areYouSure")}</AlertDialogTitle>
+          <AlertDialogTitle>
+            {title ?? t("confirm.areYouSure")}
+          </AlertDialogTitle>
           <AlertDialogDescription>
             {description ?? t("confirm.cannotBeUndone")}
           </AlertDialogDescription>
@@ -45,7 +47,9 @@ export function ConfirmDialog({
         <AlertDialogFooter>
           <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
           <AlertDialogAction
-            className={cn(destructive && buttonVariants({ variant: "destructive" }))}
+            className={cn(
+              destructive && buttonVariants({ variant: "destructive" }),
+            )}
             onClick={onConfirm}
           >
             {confirmText ?? t("common.confirm")}

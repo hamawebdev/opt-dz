@@ -80,7 +80,8 @@
     "tracking": "التتبع",
     "notifications": "الإشعارات",
     "daily": "اليومي",
-    "manage": "الإدارة"
+    "manage": "الإدارة",
+    "pos": "بيع سريع"
   },
   "quick": {
     "title": "ماذا تريد أن تفعل؟",
@@ -167,7 +168,8 @@
   "saleStatus": {
     "paid": "مدفوع",
     "partial": "جزئي",
-    "unpaid": "غير مدفوع"
+    "unpaid": "غير مدفوع",
+    "void": "ملغاة"
   },
   "jobStatus": {
     "ordered": "تم الطلب",
@@ -192,6 +194,39 @@
   "returnMethod": {
     "refund": "استرداد"
   },
+  "auth": {
+    "managerPin": "رمز المدير",
+    "wrongPin": "رمز المدير غير صحيح"
+  },
+  "staff": {
+    "title": "الموظفون والأمان",
+    "desc": "من على الصندوق، رمز المدير للإجراءات الحساسة، النسخ الاحتياطي التلقائي، وسجل النشاط.",
+    "current": "من على الصندوق",
+    "addName": "اسم الموظف الجديد",
+    "role": "الدور",
+    "add": "إضافة",
+    "added": "تمت إضافة الموظف",
+    "managerPin": "رمز المدير",
+    "pinOn": "مُفعّل",
+    "pinOff": "مُعطّل",
+    "pinPlaceholder": "رمز جديد (اتركه فارغًا للإزالة)",
+    "pinHint": "مطلوب لإلغاء الفواتير والإجراءات الحساسة الأخرى. اتركه فارغًا واحفظ لإزالته.",
+    "pinSet": "تم تحديث رمز المدير",
+    "pinCleared": "تمت إزالة رمز المدير",
+    "autoBackup": "النسخ الاحتياطي التلقائي",
+    "backupInterval": "كل (أيام)",
+    "backupHint": "تُحفظ النسخ في المجلد المحدد في البيانات والنسخ الاحتياطي، عند بدء التشغيل عند الحاجة.",
+    "backupSaved": "تم حفظ إعدادات النسخ الاحتياطي",
+    "auditLog": "النشاط الأخير",
+    "auditEmpty": "لا يوجد نشاط مُسجّل بعد."
+  },
+  "staffRole": {
+    "owner": "المالك",
+    "optometrist": "فاحص بصر",
+    "optician": "أخصائي بصريات",
+    "cashier": "أمين صندوق",
+    "staff": "موظف"
+  },
   "dataKind": {
     "patients": "المرضى",
     "products": "المنتجات",
@@ -199,6 +234,7 @@
   },
   "home": {
     "todaysSales": "مبيعات اليوم",
+    "collectedToday": "المحصّل: {{amount}}",
     "invoicesToday": "فواتير اليوم",
     "lowStockItems": "أصناف منخفضة المخزون",
     "outstandingBalance": "الرصيد المستحق",
@@ -229,6 +265,10 @@
     "noMatch": "لا يوجد مرضى مطابقون لبحثك.",
     "empty": "لا يوجد مرضى بعد. أضف أول مريض.",
     "deleted": "تم حذف المريض",
+    "archived": "تمت أرشفة المريض",
+    "archive": "أرشفة",
+    "archiveTitle": "أرشفة المريض؟",
+    "archiveDesc": "يُخفى من القائمة، لكن تُحفظ كل وصفاته ومبيعاته وسجلّه. يمكنك استعادته لاحقًا.",
     "deleteError": "تعذّر الحذف: {{error}}",
     "deleteTitle": "حذف المريض؟",
     "deleteDesc": "سيؤدي هذا إلى حذف المريض وسجل وصفاته الطبية. المبيعات المرتبطة بهذا المريض تمنع الحذف.",
@@ -283,6 +323,7 @@
   },
   "appointments": {
     "title": "المواعيد",
+    "conflictWarning": "تنبيه: يتعارض مع موعد {{name}} الساعة {{time}} مع نفس فاحص البصر.",
     "new": "موعد جديد",
     "edit": "تعديل الموعد",
     "none": "لا توجد مواعيد.",
@@ -362,6 +403,10 @@
     "low": "منخفض",
     "recordDeliveryAria": "تسجيل استلام",
     "productDeleted": "تم حذف المنتج",
+    "productArchived": "تمت أرشفة المنتج",
+    "archive": "أرشفة",
+    "archiveTitle": "أرشفة المنتج؟",
+    "archiveDesc": "يُخفى من الكتالوج ونقطة البيع، لكن يُحتفظ بسجل مخزونه ومبيعاته السابقة. يمكنك استعادته لاحقًا.",
     "couldNotDelete": "تعذّر الحذف: {{error}}",
     "deleteTitle": "حذف المنتج؟",
     "deleteDesc": "سيؤدي هذا إلى إزالة المنتج من الكتالوج. تبقى سطور المبيعات السابقة محفوظة.",
@@ -457,6 +502,12 @@
     "amount": "المبلغ",
     "removePaymentAria": "حذف الدفعة",
     "returnsCreditNotes": "المرتجعات / إشعارات الدائن",
+    "void": "إلغاء",
+    "saleVoided": "تم إلغاء البيع واستعادة المخزون",
+    "voidSaleTitle": "إلغاء هذه الفاتورة؟",
+    "voidSaleDesc": "تُحفظ الفاتورة ورقمها للسجلات، ويُعاد المخزون، ويُلغى أي تأمين. لا يمكن التراجع عن هذا الإجراء.",
+    "voidReason": "السبب (اختياري)",
+    "voidReasonPlaceholder": "مثال: عميل خاطئ، خطأ في الإدخال",
     "deleteSaleTitle": "حذف البيع؟",
     "deleteSaleDesc": "سيؤدي هذا إلى حذف الفاتورة ومدفوعاتها، واستعادة مخزون الأصناف.",
     "removePaymentTitle": "حذف الدفعة؟",
@@ -465,7 +516,8 @@
     "invoiceUpper": "فاتورة",
     "billedTo": "صدرت إلى",
     "expSuffix": " · انتهاء {{date}}",
-    "expiredWarning": "{{name}} منتهي الصلاحية"
+    "expiredWarning": "{{name}} منتهي الصلاحية",
+    "walkIn": "زبون عابر"
   },
   "jobs": {
     "title": "أعمال المخبر",
@@ -610,7 +662,8 @@
     "prescriberPlaceholder": "اسم الطبيب (اختياري)",
     "notesPlaceholder": "ملاحظات الزيارة…",
     "savePrescription": "حفظ الوصفة",
-    "added": "تمت إضافة الوصفة"
+    "added": "تمت إضافة الوصفة",
+    "invalidValues": "يرجى التحقق من الوصفة: المحور يجب أن يكون 0–180 والقوى بخطوات 0.25."
   },
   "confirm": {
     "areYouSure": "هل أنت متأكد؟",
@@ -636,7 +689,12 @@
     "processReturn": "معالجة الإرجاع",
     "enterQty": "أدخل كمية للإرجاع",
     "cannotReturnMore": "لا يمكن إرجاع أكثر من {{max}} من «{{description}}»",
-    "refundRecorded": "تم تسجيل الاسترداد"
+    "refundRecorded": "تم تسجيل الاسترداد",
+    "method": "طريقة الإشعار",
+    "method_refund": "استرداد نقدي",
+    "method_refund_hint": "إعادة المال (بحد المبلغ المدفوع)",
+    "method_balance": "خصم من الرصيد",
+    "method_balance_hint": "تطبيق الإشعار على المبلغ المتبقّي"
   },
   "delivery": {
     "title": "تسجيل استلام",
@@ -804,7 +862,8 @@
     "save": "حفظ",
     "delete": "حذف",
     "none": "لا توجد تنويعات — يستخدم هذا المنتج مخزونه الخاص.",
-    "saved": "تم حفظ التنويع"
+    "saved": "تم حفظ التنويع",
+    "manualCorrection": "تصحيح يدوي"
   },
   "photos": {
     "title": "الصور",
@@ -837,5 +896,57 @@
     "reviewTitle": "ألوان للمراجعة",
     "reviewDesc": "تعذّر مطابقة هذه الألوان النصية القديمة تلقائيًا. اربط كل واحدة بلون.",
     "mapTo": "الربط بـ…"
+  },
+  "pos": {
+    "title": "بيع سريع",
+    "searchPlaceholder": "ابحث بالاسم، الطراز، المرجع، الباركود، العلامة، اللون، المورّد…",
+    "gridView": "شبكة",
+    "listView": "قائمة",
+    "allBrands": "كل العلامات",
+    "allColors": "كل الألوان",
+    "inStockOnly": "متوفر",
+    "favorites": "المفضلة",
+    "recentlySold": "المباع مؤخرًا",
+    "noProducts": "لا توجد منتجات",
+    "add": "إضافة",
+    "chooseVariant": "اختر نوعًا",
+    "variantsCount_one": "{{count}} نوع",
+    "variantsCount_other": "{{count}} أنواع",
+    "outOfStock": "نفد",
+    "lowStock": "مخزون منخفض",
+    "inStock": "متوفر",
+    "cart": "البيع الحالي",
+    "emptyCart": "السلة فارغة — اضغط منتجًا لإضافته",
+    "walkInCustomer": "زبون عابر",
+    "addCustomer": "إضافة زبون",
+    "changeCustomer": "تغيير",
+    "removeCustomer": "إزالة الزبون",
+    "removeItem": "إزالة العنصر",
+    "hold": "تعليق",
+    "resume": "استئناف",
+    "clearAll": "مسح الكل",
+    "pay": "دفع",
+    "scan": "مسح",
+    "heldSales": "مبيعات معلّقة",
+    "noHeldSales": "لا مبيعات معلّقة",
+    "holdTitle": "تعليق هذا البيع",
+    "holdLabelPlaceholder": "تسمية (اختياري)، مثل: الطاولة الزرقاء",
+    "saleHeld": "تم تعليق البيع",
+    "confirmClearTitle": "تفريغ السلة؟",
+    "confirmClearDesc": "ستتم إزالة جميع العناصر من البيع الحالي.",
+    "confirmDeleteHeldTitle": "حذف البيع المعلّق؟",
+    "confirmDeleteHeldDesc": "سيُحذف هذا السلة المعلقة نهائيًا.",
+    "payTitle": "الدفع",
+    "amountReceived": "المبلغ المستلم",
+    "change": "الباقي",
+    "completeSale": "إتمام البيع",
+    "saleCompleted": "تم إتمام البيع",
+    "newSale": "بيع جديد",
+    "printReceipt": "طباعة الإيصال",
+    "outOfStockWarn": "{{name}} نفد من المخزون",
+    "scanNotFound": "لا يوجد منتج للباركود {{code}}",
+    "added": "تمت إضافة {{name}}",
+    "discount": "خصم",
+    "items": "عناصر"
   }
 }

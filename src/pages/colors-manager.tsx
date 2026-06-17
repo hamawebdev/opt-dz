@@ -1,14 +1,27 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { ArrowLeft, Plus, Pencil, Archive, ArchiveRestore, Merge } from "lucide-react";
+import {
+  ArrowLeft,
+  Plus,
+  Pencil,
+  Archive,
+  ArchiveRestore,
+  Merge,
+} from "lucide-react";
 import { toast } from "sonner";
 import { notifyError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -82,7 +95,9 @@ export default function ColorsManagerPage() {
                 <TableHead>{t("colors.name")}</TableHead>
                 <TableHead>{t("colors.fr")}</TableHead>
                 <TableHead>{t("colors.ar")}</TableHead>
-                <TableHead className="text-right">{t("colors.usage")}</TableHead>
+                <TableHead className="text-right">
+                  {t("colors.usage")}
+                </TableHead>
                 <TableHead className="w-28" />
               </TableRow>
             </TableHeader>
@@ -100,8 +115,12 @@ export default function ColorsManagerPage() {
                       </Badge>
                     ) : null}
                   </TableCell>
-                  <TableCell className="text-muted-foreground">{c.name_fr ?? "—"}</TableCell>
-                  <TableCell className="text-muted-foreground">{c.name_ar ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {c.name_fr ?? "—"}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {c.name_ar ?? "—"}
+                  </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {usage?.[c.id] ?? 0}
                   </TableCell>
@@ -130,7 +149,11 @@ export default function ColorsManagerPage() {
                         type="button"
                         variant="ghost"
                         size="icon"
-                        aria-label={c.archived ? t("common.unarchive") : t("common.archive")}
+                        aria-label={
+                          c.archived
+                            ? t("common.unarchive")
+                            : t("common.archive")
+                        }
                         onClick={() =>
                           archive.mutate({ id: c.id, archived: !c.archived })
                         }
@@ -230,7 +253,9 @@ function ColorEditDialog({
               <Label>{t("colors.fr")}</Label>
               <Input
                 value={form.name_fr ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, name_fr: e.target.value }))}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, name_fr: e.target.value }))
+                }
               />
             </div>
             <div className="grid gap-1.5">
@@ -238,7 +263,9 @@ function ColorEditDialog({
               <Input
                 dir="rtl"
                 value={form.name_ar ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, name_ar: e.target.value }))}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, name_ar: e.target.value }))
+                }
               />
             </div>
           </div>
@@ -249,12 +276,16 @@ function ColorEditDialog({
                 type="color"
                 className="size-9 cursor-pointer rounded border bg-transparent"
                 value={form.hex || "#000000"}
-                onChange={(e) => setForm((f) => ({ ...f, hex: e.target.value }))}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, hex: e.target.value }))
+                }
               />
               <Input
                 placeholder="#RRGGBB"
                 value={form.hex ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, hex: e.target.value }))}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, hex: e.target.value }))
+                }
               />
               <Button
                 type="button"
@@ -271,7 +302,10 @@ function ColorEditDialog({
           <Button variant="outline" onClick={onClose}>
             {t("common.cancel")}
           </Button>
-          <Button onClick={save} disabled={create.isPending || update.isPending}>
+          <Button
+            onClick={save}
+            disabled={create.isPending || update.isPending}
+          >
             {t("common.save")}
           </Button>
         </DialogFooter>
@@ -312,7 +346,9 @@ function MergeColorDialog({
     <Dialog open={source != null} onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{t("colors.mergeTitle", { name: source?.name })}</DialogTitle>
+          <DialogTitle>
+            {t("colors.mergeTitle", { name: source?.name })}
+          </DialogTitle>
         </DialogHeader>
         <div className="grid gap-1.5">
           <Label>{t("colors.mergeInto")}</Label>

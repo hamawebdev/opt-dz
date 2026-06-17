@@ -80,7 +80,8 @@
     "tracking": "Suivi",
     "notifications": "Notifications",
     "daily": "Quotidien",
-    "manage": "Gérer"
+    "manage": "Gérer",
+    "pos": "Vente rapide"
   },
   "quick": {
     "title": "Que voulez-vous faire ?",
@@ -167,7 +168,8 @@
   "saleStatus": {
     "paid": "Payé",
     "partial": "Partiel",
-    "unpaid": "Impayé"
+    "unpaid": "Impayé",
+    "void": "Annulée"
   },
   "jobStatus": {
     "ordered": "Commandé",
@@ -192,6 +194,39 @@
   "returnMethod": {
     "refund": "Remboursement"
   },
+  "auth": {
+    "managerPin": "Code gérant",
+    "wrongPin": "Code gérant incorrect"
+  },
+  "staff": {
+    "title": "Personnel et sécurité",
+    "desc": "Qui est à la caisse, le code gérant pour les actions sensibles, les sauvegardes automatiques et le journal d'activité.",
+    "current": "Qui est à la caisse",
+    "addName": "Nom du nouvel employé",
+    "role": "Rôle",
+    "add": "Ajouter",
+    "added": "Employé ajouté",
+    "managerPin": "Code gérant",
+    "pinOn": "Activé",
+    "pinOff": "Désactivé",
+    "pinPlaceholder": "Nouveau code (vide pour retirer)",
+    "pinHint": "Requis pour annuler des factures et autres actions sensibles. Laissez vide et enregistrez pour le retirer.",
+    "pinSet": "Code gérant mis à jour",
+    "pinCleared": "Code gérant retiré",
+    "autoBackup": "Sauvegardes automatiques",
+    "backupInterval": "Tous les (jours)",
+    "backupHint": "Les sauvegardes sont enregistrées dans le dossier défini dans Données et sauvegarde, au démarrage si nécessaire.",
+    "backupSaved": "Paramètres de sauvegarde enregistrés",
+    "auditLog": "Activité récente",
+    "auditEmpty": "Aucune activité enregistrée pour l'instant."
+  },
+  "staffRole": {
+    "owner": "Propriétaire",
+    "optometrist": "Optométriste",
+    "optician": "Opticien",
+    "cashier": "Caissier",
+    "staff": "Employé"
+  },
   "dataKind": {
     "patients": "patients",
     "products": "produits",
@@ -199,6 +234,7 @@
   },
   "home": {
     "todaysSales": "Ventes du jour",
+    "collectedToday": "Encaissé : {{amount}}",
     "invoicesToday": "Factures du jour",
     "lowStockItems": "Articles en rupture",
     "outstandingBalance": "Solde impayé",
@@ -229,6 +265,10 @@
     "noMatch": "Aucun patient ne correspond à votre recherche.",
     "empty": "Aucun patient pour l'instant. Ajoutez le premier.",
     "deleted": "Patient supprimé",
+    "archived": "Patient archivé",
+    "archive": "Archiver",
+    "archiveTitle": "Archiver le patient ?",
+    "archiveDesc": "Il est masqué de la liste, mais toutes ses ordonnances, ventes et son historique sont conservés. Vous pourrez le restaurer plus tard.",
     "deleteError": "Suppression impossible : {{error}}",
     "deleteTitle": "Supprimer le patient ?",
     "deleteDesc": "Cela supprime le patient et son historique d'ordonnances. Les ventes liées à ce patient empêchent la suppression.",
@@ -283,6 +323,7 @@
   },
   "appointments": {
     "title": "Rendez-vous",
+    "conflictWarning": "Attention : chevauche le rendez-vous de {{name}} à {{time}} avec le même optométriste.",
     "new": "Nouveau rendez-vous",
     "edit": "Modifier le rendez-vous",
     "none": "Aucun rendez-vous.",
@@ -362,6 +403,10 @@
     "low": "faible",
     "recordDeliveryAria": "Enregistrer une livraison",
     "productDeleted": "Produit supprimé",
+    "productArchived": "Produit archivé",
+    "archive": "Archiver",
+    "archiveTitle": "Archiver le produit ?",
+    "archiveDesc": "Il est masqué du catalogue et du point de vente, mais son historique de stock et ses ventes passées sont conservés. Vous pourrez le restaurer plus tard.",
     "couldNotDelete": "Suppression impossible : {{error}}",
     "deleteTitle": "Supprimer le produit ?",
     "deleteDesc": "Cela retire le produit du catalogue. Les lignes de ventes passées sont conservées.",
@@ -457,6 +502,12 @@
     "amount": "Montant",
     "removePaymentAria": "Supprimer le paiement",
     "returnsCreditNotes": "Retours / avoirs",
+    "void": "Annuler",
+    "saleVoided": "Vente annulée, stock rétabli",
+    "voidSaleTitle": "Annuler cette facture ?",
+    "voidSaleDesc": "La facture et son numéro sont conservés pour les archives, le stock est rétabli et toute prise en charge est annulée. Action irréversible.",
+    "voidReason": "Motif (facultatif)",
+    "voidReasonPlaceholder": "ex. mauvais client, erreur de saisie",
     "deleteSaleTitle": "Supprimer la vente ?",
     "deleteSaleDesc": "Cela supprime la facture et ses paiements, et rétablit le stock des articles.",
     "removePaymentTitle": "Supprimer le paiement ?",
@@ -465,7 +516,8 @@
     "invoiceUpper": "FACTURE",
     "billedTo": "Facturé à",
     "expSuffix": " · exp. {{date}}",
-    "expiredWarning": "{{name}} est périmé"
+    "expiredWarning": "{{name}} est périmé",
+    "walkIn": "Client de passage"
   },
   "jobs": {
     "title": "Travaux labo",
@@ -610,7 +662,8 @@
     "prescriberPlaceholder": "Nom du Dr (facultatif)",
     "notesPlaceholder": "Observations de la visite…",
     "savePrescription": "Enregistrer l'ordonnance",
-    "added": "Ordonnance ajoutée"
+    "added": "Ordonnance ajoutée",
+    "invalidValues": "Vérifiez l'ordonnance : l'axe doit être 0–180 et les puissances par pas de 0,25."
   },
   "confirm": {
     "areYouSure": "Êtes-vous sûr ?",
@@ -636,7 +689,12 @@
     "processReturn": "Traiter le retour",
     "enterQty": "Saisissez une quantité à retourner",
     "cannotReturnMore": "Impossible de retourner plus de {{max}} de « {{description}} »",
-    "refundRecorded": "Remboursement enregistré"
+    "refundRecorded": "Remboursement enregistré",
+    "method": "Mode d'avoir",
+    "method_refund": "Remboursement espèces",
+    "method_refund_hint": "Rendre l'argent (jusqu'au montant payé)",
+    "method_balance": "Réduire le solde",
+    "method_balance_hint": "Appliquer l'avoir au montant restant dû"
   },
   "delivery": {
     "title": "Enregistrer une livraison",
@@ -804,7 +862,8 @@
     "save": "Enregistrer",
     "delete": "Supprimer",
     "none": "Aucune déclinaison — ce produit utilise son propre stock.",
-    "saved": "Déclinaison enregistrée"
+    "saved": "Déclinaison enregistrée",
+    "manualCorrection": "Correction manuelle"
   },
   "photos": {
     "title": "Photos",
@@ -837,5 +896,57 @@
     "reviewTitle": "Couleurs à vérifier",
     "reviewDesc": "Ces anciennes couleurs en texte libre n'ont pas pu être associées automatiquement. Associez chacune à une couleur.",
     "mapTo": "Associer à…"
+  },
+  "pos": {
+    "title": "Vente rapide",
+    "searchPlaceholder": "Rechercher par nom, modèle, référence, code-barres, marque, couleur, fournisseur…",
+    "gridView": "Grille",
+    "listView": "Liste",
+    "allBrands": "Toutes les marques",
+    "allColors": "Toutes les couleurs",
+    "inStockOnly": "En stock",
+    "favorites": "Favoris",
+    "recentlySold": "Vendus récemment",
+    "noProducts": "Aucun produit trouvé",
+    "add": "Ajouter",
+    "chooseVariant": "Choisir une variante",
+    "variantsCount_one": "{{count}} variante",
+    "variantsCount_other": "{{count}} variantes",
+    "outOfStock": "Rupture",
+    "lowStock": "Stock faible",
+    "inStock": "En stock",
+    "cart": "Vente en cours",
+    "emptyCart": "Panier vide — touchez un produit pour l'ajouter",
+    "walkInCustomer": "Client de passage",
+    "addCustomer": "Ajouter un client",
+    "changeCustomer": "Changer",
+    "removeCustomer": "Retirer le client",
+    "removeItem": "Retirer l'article",
+    "hold": "En attente",
+    "resume": "Reprendre",
+    "clearAll": "Tout effacer",
+    "pay": "Payer",
+    "scan": "Scanner",
+    "heldSales": "Ventes en attente",
+    "noHeldSales": "Aucune vente en attente",
+    "holdTitle": "Mettre la vente en attente",
+    "holdLabelPlaceholder": "Étiquette (optionnel), ex. comptoir bleu",
+    "saleHeld": "Vente mise en attente",
+    "confirmClearTitle": "Vider le panier ?",
+    "confirmClearDesc": "Tous les articles seront retirés de la vente en cours.",
+    "confirmDeleteHeldTitle": "Supprimer la vente en attente ?",
+    "confirmDeleteHeldDesc": "Ce panier en attente sera supprimé définitivement.",
+    "payTitle": "Paiement",
+    "amountReceived": "Montant reçu",
+    "change": "Monnaie",
+    "completeSale": "Finaliser la vente",
+    "saleCompleted": "Vente finalisée",
+    "newSale": "Nouvelle vente",
+    "printReceipt": "Imprimer le ticket",
+    "outOfStockWarn": "{{name}} est en rupture de stock",
+    "scanNotFound": "Aucun produit pour le code-barres {{code}}",
+    "added": "{{name}} ajouté",
+    "discount": "Remise",
+    "items": "articles"
   }
 }

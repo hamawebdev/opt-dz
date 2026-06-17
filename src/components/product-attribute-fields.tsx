@@ -9,9 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { parseOptions } from "@/db/attributes";
-import type {
-  AttributeValueInput,
-} from "@/db/attributes";
+import type { AttributeValueInput } from "@/db/attributes";
 import { cn } from "@/lib/utils";
 import type { ResolvedAttribute } from "@/types";
 
@@ -70,7 +68,10 @@ export function ProductAttributeFields({
                 step="any"
                 value={v == null ? "" : String(v)}
                 onChange={(e) =>
-                  onChange(a.id, e.target.value === "" ? null : Number(e.target.value))
+                  onChange(
+                    a.id,
+                    e.target.value === "" ? null : Number(e.target.value),
+                  )
                 }
               />
             )}
@@ -78,7 +79,9 @@ export function ProductAttributeFields({
             {a.field_type === "select" && (
               <Select
                 value={(v as string) || NONE}
-                onValueChange={(val) => onChange(a.id, val === NONE ? null : val)}
+                onValueChange={(val) =>
+                  onChange(a.id, val === NONE ? null : val)
+                }
               >
                 <SelectTrigger>
                   <SelectValue />

@@ -22,7 +22,12 @@ export async function recordPayment(args: {
   note?: string | null;
 }): Promise<void> {
   unwrap(
-    await commands.recordPayment(args.saleId, args.amount, args.method ?? null, args.note ?? null),
+    await commands.recordPayment(
+      args.saleId,
+      args.amount,
+      args.method ?? null,
+      args.note ?? null,
+    ),
   );
 }
 

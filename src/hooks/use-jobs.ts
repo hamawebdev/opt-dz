@@ -41,7 +41,8 @@ export function useCreateJob() {
 export function useUpdateJobStatus() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (args: { id: number; status: JobStatus }) => updateJobStatus(args.id, args.status),
+    mutationFn: (args: { id: number; status: JobStatus }) =>
+      updateJobStatus(args.id, args.status),
     onSuccess: () => invalidate(qc),
   });
 }
@@ -51,7 +52,11 @@ export function useUpdateJobDetails() {
   return useMutation({
     mutationFn: (args: {
       id: number;
-      input: { lab?: string | null; expected_ready?: string | null; notes?: string | null };
+      input: {
+        lab?: string | null;
+        expected_ready?: string | null;
+        notes?: string | null;
+      };
     }) => updateJobDetails(args.id, args.input),
     onSuccess: () => invalidate(qc),
   });

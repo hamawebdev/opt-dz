@@ -43,26 +43,61 @@ async deletePayment(paymentId: number, saleId: number) : Promise<Result<null, st
 }
 },
 /**
- * Restores stock for a sale's items (logging adjustment movements) and deletes the
- * sale (cascading items/payments) in a single transaction.
+ * Voids a sale: a fiscally-issued invoice is never deleted (that would break the
+ * gap-free TVA sequence). Instead it is marked `status = 'void'` — the row and its
+ * invoice number are retained for audit — while stock is restored, any insurer claim
+ * is cancelled, and the patient owes nothing. Rejected if the sale already has a
+ * credit note (process/undo the return first) or is already void. Recorded payments
+ * are left in place as a historical record; refunding them is a separate cash action.
  */
-async deleteSale(saleId: number) : Promise<Result<null, string>> {
+async voidSale(saleId: number, reason: string | null) : Promise<Result<null, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("delete_sale", { saleId }) };
+    return { status: "ok", data: await TAURI_INVOKE("void_sale", { saleId, reason }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
 },
 /**
- * Processes a return as a credit note: validates returnable quantities (against what
- * was sold minus already-returned), restocks the goods, and records the credit note
- * and its items as a cash refund. The original sale is left intact. Returns the new
- * credit-note id.
+ * Processes a return as a numbered credit note (avoir): validates returnable quantities,
+ * restocks the goods, and credits the customer the **net amount actually borne** for the
+ * returned lines — i.e. their share after the global discount and insurer coverage
+ * (`line_total × (total − covered) / subtotal`), not the raw line price. A 'refund' is
+ * capped at what the customer has paid (use 'balance' for the unpaid portion); a 'balance'
+ * credit reduces the sale's outstanding balance via sync_sale_balance. The original
+ * invoice is left intact. Insurer-claim reconciliation for returned goods is handled
+ * separately on the claims screen. Returns the new credit-note id.
  */
 async createReturn(input: CreateReturnInput) : Promise<Result<number, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("create_return", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Updates an insurance claim's status. The 'rejected' path re-bills the patient: the
+ * previously-covered amount is zeroed and the sale's balance re-synced, so a rejected
+ * claim no longer silently disappears from what the patient owes (audit finding E1).
+ */
+async setClaimStatus(claimId: number, status: string, claimRef: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_claim_status", { claimId, status, claimRef }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Merges a duplicate patient into a surviving one: re-points all of the duplicate's
+ * records (sales, prescriptions, jobs, appointments, credit notes, activity, held
+ * carts, custom fields) onto `keep_id`, then deletes the now-empty duplicate. Custom
+ * fields that would collide (same attribute on both) keep the survivor's value.
+ */
+async mergePatients(keepId: number, dupId: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("merge_patients", { keepId, dupId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -143,8 +178,16 @@ async printLabel(input: LabelInput) : Promise<Result<null, string>> {
 
 /** user-defined types **/
 
-export type CreateReturnInput = { sale_id: number; method: string; notes: string | null; items: ReturnItemInput[] }
-export type CreateSaleInput = { patient_id: number; prescription_id: number | null; sale_date: string; discount_type: string; discount_value: number; notes: string | null; items: SaleItemInput[]; initial_payment: number | null; payment_method: string | null; payer_id: number | null; coverage_pct: number | null }
+export type CreateReturnInput = { sale_id: number; 
+/**
+ * 'refund' = cash back to the customer; 'balance' = credit the sale's outstanding balance.
+ */
+method: string; notes: string | null; items: ReturnItemInput[] }
+export type CreateSaleInput = { 
+/**
+ * `None` for a walk-in / quick sale with no registered customer.
+ */
+patient_id: number | null; prescription_id: number | null; sale_date: string; discount_type: string; discount_value: number; notes: string | null; items: SaleItemInput[]; initial_payment: number | null; payment_method: string | null; payer_id: number | null; coverage_pct: number | null }
 /**
  * A barcode label to print on the thermal/label printer.
  */
