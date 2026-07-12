@@ -208,7 +208,13 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
         return Err("A sale needs at least one item".into());
     }
     let pool = db_pool(&app).await?;
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    // BEGIN IMMEDIATE (here and in every write command) takes the write slot up
+    // front, so under WAL a contended writer waits on the busy timeout instead of
+    // failing its later read→write lock upgrade with an unretried SQLITE_BUSY.
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
 
     // Validate every line up front (the Rust command is the real authority; the UI
     // floor in pos-totals.ts is only a convenience). Rejects negative-quantity lines
@@ -525,7 +531,10 @@ async fn record_payment(
         return Err("Payment amount must be greater than 0".into());
     }
     let pool = db_pool(&app).await?;
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
 
     // Reject overpayment (B4). The ceiling is the most the patient could owe — goods
     // plus the full possible timbre, minus insurer coverage and any balance credits.
@@ -593,7 +602,10 @@ async fn record_payment(
 #[specta::specta]
 async fn delete_payment(app: AppHandle, payment_id: i64, sale_id: i64) -> Result<(), String> {
     let pool = db_pool(&app).await?;
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
     sqlx::query("DELETE FROM payments WHERE id = ?1")
         .bind(payment_id)
         .execute(&mut *tx)
@@ -614,7 +626,10 @@ async fn delete_payment(app: AppHandle, payment_id: i64, sale_id: i64) -> Result
 #[specta::specta]
 async fn void_sale(app: AppHandle, sale_id: i64, reason: Option<String>) -> Result<(), String> {
     let pool = db_pool(&app).await?;
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
 
     let status: String = sqlx::query("SELECT status FROM sales WHERE id = ?1")
         .bind(sale_id)
@@ -756,7 +771,10 @@ async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, 
         return Err("Invalid return method".into());
     }
     let pool = db_pool(&app).await?;
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
 
     // Load the sale's net basis: a walk-in has a NULL patient; a void sale can't be returned.
     let sale = sqlx::query(
@@ -975,7 +993,10 @@ async fn set_claim_status(
         return Err("Invalid claim status".into());
     }
     let pool = db_pool(&app).await?;
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
 
     let sale_id: i64 = sqlx::query("SELECT sale_id FROM claims WHERE id = ?1")
         .bind(claim_id)
@@ -1022,7 +1043,10 @@ async fn merge_patients(app: AppHandle, keep_id: i64, dup_id: i64) -> Result<(),
         return Err("Cannot merge a patient into itself".into());
     }
     let pool = db_pool(&app).await?;
-    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
 
     for id in [keep_id, dup_id] {
         let exists = sqlx::query("SELECT 1 AS x FROM patients WHERE id = ?1")
@@ -1081,6 +1105,204 @@ async fn merge_patients(app: AppHandle, keep_id: i64, dup_id: i64) -> Result<(),
     Ok(())
 }
 
+/// Atomic stock change (delivery or adjustment) for a product or a variant.
+/// Replaces the frontend BEGIN/COMMIT transactions in `src/db/stock.ts`, which
+/// were unsafe on the shared pool (each statement lands on an arbitrary pooled
+/// connection). The invariant: on-hand quantity never diverges from the
+/// movement ledger, and a supplier debt is only booked with its delivery.
+#[derive(Debug, Deserialize, Type)]
+pub struct StockChangeInput {
+    pub product_id: Option<i64>,
+    /// When set, stock is tracked on this product variant instead of the product.
+    pub variant_id: Option<i64>,
+    /// "delivery" or "adjustment" — recorded verbatim in stock_movements.type.
+    pub movement_type: String,
+    pub quantity_change: i64,
+    /// When set, becomes the product/variant's new purchase price (centimes).
+    pub purchase_price: Option<i64>,
+    pub note: Option<String>,
+    pub supplier_id: Option<i64>,
+    /// Total purchase cost (centimes) to book as a supplier debt.
+    pub debt_amount: Option<i64>,
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn record_stock_change(app: AppHandle, input: StockChangeInput) -> Result<(), String> {
+    if !matches!(input.movement_type.as_str(), "delivery" | "adjustment") {
+        return Err("movement_type must be 'delivery' or 'adjustment'".into());
+    }
+    let pool = db_pool(&app).await?;
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
+    match input.variant_id {
+        Some(variant_id) => {
+            sqlx::query(
+                "UPDATE product_variants SET quantity = quantity + ?1, updated_at = datetime('now') WHERE id = ?2",
+            )
+            .bind(input.quantity_change)
+            .bind(variant_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+            if let Some(price) = input.purchase_price {
+                sqlx::query("UPDATE product_variants SET purchase_price = ?1 WHERE id = ?2")
+                    .bind(price)
+                    .bind(variant_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        None => {
+            let product_id = input
+                .product_id
+                .ok_or("product_id or variant_id is required")?;
+            sqlx::query(
+                "UPDATE products SET quantity = quantity + ?1, updated_at = datetime('now') WHERE id = ?2",
+            )
+            .bind(input.quantity_change)
+            .bind(product_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+            if let Some(price) = input.purchase_price {
+                sqlx::query("UPDATE products SET purchase_price = ?1 WHERE id = ?2")
+                    .bind(price)
+                    .bind(product_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+    }
+    sqlx::query(
+        "INSERT INTO stock_movements (product_id, variant_id, type, quantity_change, note) VALUES (?1, ?2, ?3, ?4, ?5)",
+    )
+    .bind(input.product_id)
+    .bind(input.variant_id)
+    .bind(&input.movement_type)
+    .bind(input.quantity_change)
+    .bind(&input.note)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    if let (Some(supplier_id), Some(debt)) = (input.supplier_id, input.debt_amount) {
+        if debt > 0 {
+            let what = match input.variant_id {
+                Some(v) => format!("Delivery: variant #{v}"),
+                None => format!(
+                    "Delivery: product #{}",
+                    input.product_id.unwrap_or_default()
+                ),
+            };
+            sqlx::query(
+                "INSERT INTO supplier_ledger (supplier_id, type, amount, note, ref) VALUES (?1, 'purchase', ?2, ?3, ?4)",
+            )
+            .bind(supplier_id)
+            .bind(debt)
+            .bind(&input.note)
+            .bind(what)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+    }
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Advances a job's status, stamps delivered_at at 'collected', and records the
+/// stage change in job_events (per-stage history, H1) — atomically. Replaces the
+/// frontend transaction in `src/db/jobs.ts`.
+#[tauri::command]
+#[specta::specta]
+async fn update_job_status(
+    app: AppHandle,
+    job_id: i64,
+    status: String,
+    note: Option<String>,
+) -> Result<(), String> {
+    let pool = db_pool(&app).await?;
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
+    let updated = sqlx::query(
+        "UPDATE jobs
+            SET status = ?1,
+                delivered_at = CASE WHEN ?1 = 'collected' THEN datetime('now') ELSE delivered_at END,
+                updated_at = datetime('now')
+          WHERE id = ?2",
+    )
+    .bind(&status)
+    .bind(job_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    if updated.rows_affected() == 0 {
+        return Err("Job not found".into());
+    }
+    sqlx::query("INSERT INTO job_events (job_id, status, note) VALUES (?1, ?2, ?3)")
+        .bind(job_id)
+        .bind(&status)
+        .bind(&note)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Merges colour `from_id` into `into_id`: re-points every product/variant FK and
+/// the denormalized variant colour mirror, moves aliases, then archives the
+/// source — atomically (a half-merged colour is the bad state). Replaces the
+/// frontend transaction in `src/db/colors.ts`.
+#[tauri::command]
+#[specta::specta]
+async fn merge_color(app: AppHandle, from_id: i64, into_id: i64) -> Result<(), String> {
+    if from_id == into_id {
+        return Ok(());
+    }
+    let pool = db_pool(&app).await?;
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("UPDATE products SET color_id = ?1 WHERE color_id = ?2")
+        .bind(into_id)
+        .bind(from_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query(
+        "UPDATE product_variants
+            SET color_id = ?1, color = (SELECT name FROM colors WHERE id = ?1)
+          WHERE color_id = ?2",
+    )
+    .bind(into_id)
+    .bind(from_id)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    // Re-point aliases, ignoring any that would collide with the target's aliases.
+    sqlx::query("UPDATE OR IGNORE color_aliases SET color_id = ?1 WHERE color_id = ?2")
+        .bind(into_id)
+        .bind(from_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("UPDATE colors SET archived = 1 WHERE id = ?1")
+        .bind(from_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 /// Absolute path to the live SQLite file, resolved the same way tauri-plugin-sql
 /// resolves `sqlite:app.db` (app config dir + file name).
 fn db_file_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
@@ -1091,18 +1313,55 @@ fn db_file_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(dir.join("app.db"))
 }
 
-/// Checkpoints the WAL so the `.db` file is self-contained, then copies it to
-/// `dest_path` (a full path with filename chosen by the frontend). Returns the path.
+/// One-time SQLite setup, run at app start before the plugin pool exists.
+///
+/// `journal_mode=WAL` is persistent in the database file, so flipping it once here
+/// means every connection tauri-plugin-sql opens later runs in WAL — writers no
+/// longer block readers, which is what froze the UI with "database is locked
+/// (code 5)" under the default rollback journal.
+///
+/// This must be a direct one-shot connection rather than a migration (sqlx wraps
+/// migrations in a transaction, where journal_mode cannot change) or a URL
+/// parameter (the sqlite URL scheme has none for it). The remaining per-connection
+/// settings deliberately stay on sqlx defaults: busy_timeout=5s absorbs
+/// writer-vs-writer contention, and synchronous=FULL keeps every committed sale
+/// durable — the right trade for a money database.
+fn init_sqlite_wal(app: &AppHandle) -> Result<(), String> {
+    use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode};
+    use sqlx::{ConnectOptions, Connection};
+    let path = db_file_path(app)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    tauri::async_runtime::block_on(async move {
+        let conn = SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .connect()
+            .await
+            .map_err(|e| e.to_string())?;
+        conn.close().await.map_err(|e| e.to_string())
+    })
+}
+
+/// Writes a consistent snapshot of the live database to `dest_path` (a full path
+/// with filename chosen by the frontend) via `VACUUM INTO` — SQLite's online
+/// backup: correct even while other connections keep writing (no file copy of a
+/// moving target), and the output is compacted. Returns the path.
 #[tauri::command]
 #[specta::specta]
 async fn backup_database(app: AppHandle, dest_path: String) -> Result<String, String> {
-    let src = db_file_path(&app)?;
     let pool = db_pool(&app).await?;
-    sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+    // VACUUM INTO refuses to overwrite an existing file.
+    if std::path::Path::new(&dest_path).exists() {
+        std::fs::remove_file(&dest_path).map_err(|e| e.to_string())?;
+    }
+    sqlx::query("VACUUM INTO ?1")
+        .bind(&dest_path)
         .execute(&pool)
         .await
         .map_err(|e| e.to_string())?;
-    std::fs::copy(&src, &dest_path).map_err(|e| e.to_string())?;
     Ok(dest_path)
 }
 
@@ -1298,6 +1557,9 @@ fn specta_builder() -> Builder {
         create_return,
         set_claim_status,
         merge_patients,
+        record_stock_change,
+        update_job_status,
+        merge_color,
         backup_database,
         restore_database,
         export_text_file,
@@ -2557,6 +2819,11 @@ pub fn run() {
         )
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
+            // If WAL can't be enabled the app must still start; it just keeps
+            // yesterday's locking behaviour.
+            if let Err(e) = init_sqlite_wal(app.handle()) {
+                eprintln!("warning: could not enable WAL journal mode: {e}");
+            }
             builder.mount_events(app);
             Ok(())
         })

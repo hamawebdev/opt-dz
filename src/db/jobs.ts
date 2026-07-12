@@ -1,4 +1,5 @@
-import { getDb } from "@/lib/db";
+import { getDb, unwrap } from "@/lib/db";
+import { commands } from "@/lib/bindings";
 import type { JobEvent, JobRow, JobStatus } from "@/types";
 
 // `overdue` flags a not-yet-collected job whose expected-ready date has passed.
@@ -80,32 +81,15 @@ export async function createJob(input: CreateJobInput): Promise<number> {
 }
 
 /** Advances a job's status, stamps delivered_at at 'collected', and records the stage
- * change in job_events (per-stage history) — all in one transaction (H1). */
+ * change in job_events (per-stage history) — all in one transaction (H1), which
+ * lives in the Rust `update_job_status` command (frontend BEGIN/COMMIT is unsafe
+ * on the shared pool). */
 export async function updateJobStatus(
   id: number,
   status: JobStatus,
   note?: string | null,
 ): Promise<void> {
-  const db = await getDb();
-  await db.execute("BEGIN");
-  try {
-    await db.execute(
-      `UPDATE jobs
-         SET status = $1,
-             delivered_at = CASE WHEN $1 = 'collected' THEN datetime('now') ELSE delivered_at END,
-             updated_at = datetime('now')
-       WHERE id = $2`,
-      [status, id],
-    );
-    await db.execute(
-      "INSERT INTO job_events (job_id, status, note) VALUES ($1, $2, $3)",
-      [id, status, note ?? null],
-    );
-    await db.execute("COMMIT");
-  } catch (err) {
-    await db.execute("ROLLBACK");
-    throw err;
-  }
+  unwrap(await commands.updateJobStatus(id, status, note ?? null));
 }
 
 /** Stage history for a job, most recent first. */

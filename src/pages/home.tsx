@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -26,7 +26,10 @@ import {
   ShoppingCart,
   UserPlus,
   CalendarDays,
+  CreditCard,
 } from "lucide-react";
+import { PaymentDialog } from "@/components/payment-dialog";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -70,6 +73,12 @@ export default function HomePage() {
   const { data: recalls } = recallsQuery;
   const jobsQuery = useJobs({ activeOnly: true });
   const { data: activeJobs } = jobsQuery;
+  // Take a payment straight from the pending-payments list (no trek through
+  // sales → sale detail).
+  const [paySale, setPaySale] = useState<{
+    id: number;
+    balance: number;
+  } | null>(null);
 
   // Notify once per app session about recalls due.
   const notified = useRef(false);
@@ -310,6 +319,7 @@ export default function HomePage() {
                     <TableHead className="text-right">
                       {t("common.balance")}
                     </TableHead>
+                    <TableHead className="w-0" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -320,10 +330,24 @@ export default function HomePage() {
                           #{s.id}
                         </Link>
                       </TableCell>
-                      <TableCell>{s.patient_name ?? t("sales.walkIn")}</TableCell>
+                      <TableCell>
+                        {s.patient_name ?? t("sales.walkIn")}
+                      </TableCell>
                       <TableCell>{formatDate(s.sale_date)}</TableCell>
                       <TableCell className="text-warning text-right font-semibold tabular-nums">
                         {formatDZD(s.balance, symbol)}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            setPaySale({ id: s.id, balance: s.balance })
+                          }
+                        >
+                          <CreditCard className="me-1 size-4" />
+                          {t("sales.recordPayment")}
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -436,6 +460,16 @@ export default function HomePage() {
           </CardContent>
         </Card>
       </div>
+      <PaymentDialog
+        key={paySale ? `pay-${paySale.id}` : "pay-closed"}
+        saleId={paySale?.id ?? 0}
+        balance={paySale?.balance ?? 0}
+        currencySymbol={symbol}
+        open={paySale != null}
+        onOpenChange={(open) => {
+          if (!open) setPaySale(null);
+        }}
+      />
     </div>
   );
 }
@@ -443,6 +477,9 @@ export default function HomePage() {
 /** Big, image-led task tiles — the first thing a daily user should see. */
 function QuickActions() {
   const { t } = useTranslation();
+  // Simple mode has exactly ONE way to sell — the POS screen — so the primary
+  // tile leads there instead of the advanced multi-card sale form.
+  const simpleMode = useSimpleMode();
   return (
     <div>
       <h2 className="mb-3 text-lg font-semibold tracking-tight">
@@ -450,7 +487,7 @@ function QuickActions() {
       </h2>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <QuickAction
-          to="/sales/new"
+          to={simpleMode ? "/pos" : "/sales/new"}
           icon={ShoppingCart}
           label={t("quick.newSale")}
           primary

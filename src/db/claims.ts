@@ -52,26 +52,18 @@ export async function recordClaimPayment(
 ): Promise<void> {
   if (amount <= 0) throw new Error("Payment amount must be greater than 0");
   const db = await getDb();
-  await db.execute("BEGIN");
-  try {
-    // Clamp so paid_amount tops out at covered_amount (no insurer overpayment).
-    await db.execute(
-      `UPDATE claims
-         SET paid_amount = MIN(covered_amount, paid_amount + $1)
-       WHERE id = $2`,
-      [amount, id],
-    );
-    await db.execute(
-      `UPDATE claims
-         SET status = CASE WHEN paid_amount >= covered_amount THEN 'paid'
-                           WHEN paid_amount > 0 THEN 'partial' ELSE status END,
-             paid_at = CASE WHEN paid_amount >= covered_amount THEN datetime('now') ELSE paid_at END
-       WHERE id = $1`,
-      [id],
-    );
-    await db.execute("COMMIT");
-  } catch (err) {
-    await db.execute("ROLLBACK");
-    throw err;
-  }
+  // One statement, inherently atomic (frontend BEGIN/COMMIT is unsafe on the
+  // shared pool). SET expressions all read the OLD row, so the new paid amount
+  // is recomputed in each clause: clamped so it tops out at covered_amount.
+  await db.execute(
+    `UPDATE claims
+       SET paid_amount = MIN(covered_amount, paid_amount + $1),
+           status = CASE WHEN MIN(covered_amount, paid_amount + $1) >= covered_amount THEN 'paid'
+                         WHEN MIN(covered_amount, paid_amount + $1) > 0 THEN 'partial'
+                         ELSE status END,
+           paid_at = CASE WHEN MIN(covered_amount, paid_amount + $1) >= covered_amount
+                          THEN datetime('now') ELSE paid_at END
+     WHERE id = $2`,
+    [amount, id],
+  );
 }

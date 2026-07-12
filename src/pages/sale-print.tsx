@@ -25,7 +25,9 @@ export default function SalePrintPage() {
   const { data: items } = useSaleItems(saleId);
   const { data: claim } = useClaimForSale(saleId);
   const { data: patient } = usePatient(sale?.patient_id ?? undefined);
-  const { data: prescriptions } = usePrescriptions(sale?.patient_id ?? undefined);
+  const { data: prescriptions } = usePrescriptions(
+    sale?.patient_id ?? undefined,
+  );
   const { data: settings } = useSettings();
   const symbol = settings?.currency_symbol;
   const cfg = parseReceiptConfig(settings?.receipt_config);
@@ -62,10 +64,11 @@ export default function SalePrintPage() {
           size="sm"
           onClick={() => navigate(`/sales/${saleId}`)}
         >
-          <ArrowLeft className="mr-1 size-4" /> {t("common.back")}
+          <ArrowLeft className="me-1 size-4 rtl:rotate-180" />{" "}
+          {t("common.back")}
         </Button>
         <Button onClick={() => window.print()}>
-          <Printer className="mr-1 size-4" /> {t("sales.printSaveAsPdf")}
+          <Printer className="me-1 size-4" /> {t("sales.printSaveAsPdf")}
         </Button>
       </div>
 

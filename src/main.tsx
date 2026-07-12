@@ -1,7 +1,15 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { createHashRouter, RouterProvider } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  MutationCache,
+  QueryCache,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
+import { error as logError } from "@tauri-apps/plugin-log";
+import i18n from "@/lib/i18n";
+import { describeError, isDatabaseBusy, notifyError } from "@/lib/errors";
 import { ThemeProvider } from "@/components/theme-provider";
 import { LocaleProvider } from "@/components/locale-provider";
 import { Onboarding } from "@/components/onboarding";
@@ -35,7 +43,38 @@ import ReceiptDesignerPage from "@/pages/receipt-designer";
 import { RouteErrorPage, NotFoundPage } from "@/pages/error-page";
 import "@/index.css";
 
-const queryClient = new QueryClient();
+/** Plain-language message for a failed query/mutation: transient database
+ * contention gets a calmer "busy, try again" than the generic fallback. */
+function globalErrorMessage(error: unknown, fallbackKey: string): string {
+  return i18n.t(isDatabaseBusy(error) ? "problem.databaseBusy" : fallbackKey);
+}
+
+// Global safety net: every failed query/mutation surfaces as a calm, translated
+// toast (and a log entry) unless the owning hook opted out with
+// `meta.silenceGlobal` because all of its callers already handle errors.
+// Guarantees no action ever fails silently and no raw exception reaches the UI.
+const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error, query) => {
+      if (query.meta?.silenceGlobal) return;
+      notifyError(error, globalErrorMessage(error, "problem.loadFailed"));
+    },
+  }),
+  mutationCache: new MutationCache({
+    onError: (error, _variables, _context, mutation) => {
+      if (mutation.meta?.silenceGlobal) return;
+      notifyError(error, globalErrorMessage(error, "problem.saveFailed"));
+    },
+  }),
+});
+
+// Unhandled promise rejections (e.g. fire-and-forget background writes) are
+// logged for support but never shown to the user.
+window.addEventListener("unhandledrejection", (event) => {
+  void logError(`unhandled rejection :: ${describeError(event.reason)}`).catch(
+    () => {},
+  );
+});
 
 // Dev-only: expose the demo-data seeder on the console (window.seedDatabase /
 // window.clearSeedData). Stripped from production builds. See src/db/seed.ts.
@@ -86,12 +125,23 @@ const router = createHashRouter([
     ],
   },
   // Standalone print routes (rendered without the app chrome for clean printing).
-  { path: "/sales/:id/print", element: <SalePrintPage /> },
+  // Each carries its own errorElement: they live outside the Layout tree, so
+  // without one a render crash would leave a blank tauri:// window.
+  {
+    path: "/sales/:id/print",
+    element: <SalePrintPage />,
+    errorElement: <RouteErrorPage />,
+  },
   {
     path: "/patients/:id/statement/print",
     element: <PatientStatementPrintPage />,
+    errorElement: <RouteErrorPage />,
   },
-  { path: "/label/print", element: <LabelPrintPage /> },
+  {
+    path: "/label/print",
+    element: <LabelPrintPage />,
+    errorElement: <RouteErrorPage />,
+  },
 ]);
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

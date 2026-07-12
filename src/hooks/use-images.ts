@@ -31,6 +31,7 @@ const invalidate = (qc: ReturnType<typeof useQueryClient>) => {
 export function useAddImage() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silenceGlobal: true }, // callers notify errors themselves
     mutationFn: (args: { productId: number; dataUri: string }) =>
       addImage(args.productId, args.dataUri),
     onSuccess: () => invalidate(qc),

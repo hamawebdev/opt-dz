@@ -5,9 +5,11 @@ import { z } from "zod";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { ArrowLeft, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, X } from "lucide-react";
 import { toast } from "sonner";
 import { notifyError } from "@/lib/errors";
+import { cn } from "@/lib/utils";
+import { useSimpleMode } from "@/store/use-app-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -114,6 +116,13 @@ export default function PatientFormPage() {
   const { data: customFields } = useAttributesForPatient(patientId);
   const create = useCreatePatient();
   const update = useUpdatePatient();
+
+  // Simple mode: a new patient needs only a name and phone. Everything else
+  // sits behind "More details" (hidden fields keep their values on submit).
+  // Editing always shows everything so existing data is never out of sight.
+  const simpleMode = useSimpleMode();
+  const [showMore, setShowMore] = useState(false);
+  const expanded = !simpleMode || isEdit || showMore;
 
   const [attrValues, setAttrValues] = useState<AttrValues>({});
   // Seed values for applicable custom fields without clobbering user edits.
@@ -244,44 +253,46 @@ export default function PatientFormPage() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <div className="flex items-center gap-4">
-                {photo ? (
-                  <img
-                    src={photo}
-                    alt=""
-                    className="size-16 rounded-full object-cover"
-                  />
-                ) : (
-                  <div className="bg-muted size-16 rounded-full" />
-                )}
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => fileRef.current?.click()}
-                  >
-                    {t("patients.photo")}
-                  </Button>
-                  {photo && (
+              {expanded && (
+                <div className="flex items-center gap-4">
+                  {photo ? (
+                    <img
+                      src={photo}
+                      alt=""
+                      className="size-16 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="bg-muted size-16 rounded-full" />
+                  )}
+                  <div className="flex gap-2">
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
-                      onClick={() => form.setValue("photo", "")}
+                      onClick={() => fileRef.current?.click()}
                     >
-                      <X className="size-4" />
+                      {t("patients.photo")}
                     </Button>
-                  )}
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={onPhoto}
-                  />
+                    {photo && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => form.setValue("photo", "")}
+                      >
+                        <X className="size-4" />
+                      </Button>
+                    )}
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={onPhoto}
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               <FormField
                 control={form.control}
@@ -317,140 +328,18 @@ export default function PatientFormPage() {
                     </FormItem>
                   )}
                 />
-                <FormField
-                  control={form.control}
-                  name="phone2"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("patients.phone2")}</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder={t("patients.phonePlaceholder")}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("patients.email")}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="email"
-                          placeholder="nom@example.com"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="date_of_birth"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("patients.dateOfBirth")}</FormLabel>
-                      <FormControl>
-                        <Input type="date" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-
-              <FormField
-                control={form.control}
-                name="national_id"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="flex items-center gap-1">
-                      {t("patients.nationalId")}
-                      <HelpHint text={t("help.nin")} />
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder={t("patients.nationalIdPlaceholder")}
-                        inputMode="numeric"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="address"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("common.address")}</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder={t("patients.addressPlaceholder")}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Insurance: default payer carried onto new sales. */}
-              <div className="space-y-4 rounded-lg border p-4">
-                <p className="text-sm font-medium">{t("patients.insurance")}</p>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {expanded && (
                   <FormField
                     control={form.control}
-                    name="default_payer_id"
+                    name="phone2"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>{t("patients.insurer")}</FormLabel>
-                        <SearchSelect
-                          options={payerOptions}
-                          value={field.value || null}
-                          onChange={selectPayer}
-                          placeholder={t("common.none")}
-                        />
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  {payerSelected && (
-                    <FormField
-                      control={form.control}
-                      name="coverage_pct"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>{t("patients.coveragePct")}</FormLabel>
-                          <FormControl>
-                            <Input type="number" min="0" max="100" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  )}
-                </div>
-                {payerSelected && (
-                  <FormField
-                    control={form.control}
-                    name="insurance_policy_no"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{t("patients.policyNo")}</FormLabel>
+                        <FormLabel>{t("patients.phone2")}</FormLabel>
                         <FormControl>
-                          <Input {...field} />
+                          <Input
+                            placeholder={t("patients.phonePlaceholder")}
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
@@ -459,19 +348,172 @@ export default function PatientFormPage() {
                 )}
               </div>
 
-              {!!customFields?.length && (
-                <div className="space-y-3 rounded-lg border p-4">
-                  <p className="text-sm font-medium">
-                    {t("patients.customFields")}
-                  </p>
-                  <ProductAttributeFields
-                    attributes={customFields}
-                    values={attrValues}
-                    onChange={(id: number, value: AttrValue) =>
-                      setAttrValues((p) => ({ ...p, [id]: value }))
-                    }
+              {simpleMode && !isEdit && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground"
+                  onClick={() => setShowMore((v) => !v)}
+                >
+                  <ChevronDown
+                    className={cn(
+                      "me-1 size-4 transition-transform",
+                      showMore && "rotate-180",
+                    )}
                   />
-                </div>
+                  {t(showMore ? "common.fewerDetails" : "common.moreDetails")}
+                </Button>
+              )}
+
+              {expanded && (
+                <>
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <FormField
+                      control={form.control}
+                      name="email"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t("patients.email")}</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="email"
+                              placeholder="nom@example.com"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="date_of_birth"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>{t("patients.dateOfBirth")}</FormLabel>
+                          <FormControl>
+                            <Input type="date" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <FormField
+                    control={form.control}
+                    name="national_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="flex items-center gap-1">
+                          {t("patients.nationalId")}
+                          <HelpHint text={t("help.nin")} />
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={t("patients.nationalIdPlaceholder")}
+                            inputMode="numeric"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="address"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("common.address")}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={t("patients.addressPlaceholder")}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  {/* Insurance: default payer carried onto new sales. */}
+                  <div className="space-y-4 rounded-lg border p-4">
+                    <p className="text-sm font-medium">
+                      {t("patients.insurance")}
+                    </p>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <FormField
+                        control={form.control}
+                        name="default_payer_id"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t("patients.insurer")}</FormLabel>
+                            <SearchSelect
+                              options={payerOptions}
+                              value={field.value || null}
+                              onChange={selectPayer}
+                              placeholder={t("common.none")}
+                            />
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      {payerSelected && (
+                        <FormField
+                          control={form.control}
+                          name="coverage_pct"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>{t("patients.coveragePct")}</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  max="100"
+                                  {...field}
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )}
+                    </div>
+                    {payerSelected && (
+                      <FormField
+                        control={form.control}
+                        name="insurance_policy_no"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{t("patients.policyNo")}</FormLabel>
+                            <FormControl>
+                              <Input {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+                  </div>
+
+                  {!!customFields?.length && (
+                    <div className="space-y-3 rounded-lg border p-4">
+                      <p className="text-sm font-medium">
+                        {t("patients.customFields")}
+                      </p>
+                      <ProductAttributeFields
+                        attributes={customFields}
+                        values={attrValues}
+                        onChange={(id: number, value: AttrValue) =>
+                          setAttrValues((p) => ({ ...p, [id]: value }))
+                        }
+                      />
+                    </div>
+                  )}
+                </>
               )}
 
               <FormField

@@ -22,10 +22,12 @@ import { usePatients } from "@/hooks/use-patients";
 import { useSettings } from "@/hooks/use-settings";
 import { SaleStatusPill } from "@/components/status-pill";
 import { formatDZD, formatDate } from "@/lib/format";
+import { useSimpleMode } from "@/store/use-app-store";
 
 export default function SalesListPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const simpleMode = useSimpleMode();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [patientId, setPatientId] = useState<string | null>(null);
@@ -114,11 +116,15 @@ export default function SalesListPage() {
               <Zap className="size-4" /> {t("nav.pos")}
             </Link>
           </Button>
-          <Button asChild variant="outline">
-            <Link to="/sales/new">
-              <Plus className="size-4" /> {t("sales.newSale")}
-            </Link>
-          </Button>
+          {/* Simple mode keeps ONE way to sell (the POS); the advanced sale
+              form stays available in full mode. */}
+          {!simpleMode && (
+            <Button asChild variant="outline">
+              <Link to="/sales/new">
+                <Plus className="size-4" /> {t("sales.newSale")}
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 

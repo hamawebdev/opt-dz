@@ -20,12 +20,32 @@ export interface PatientInput {
 
 /** Computes the next human-readable client code (e.g. "P-0001") and the value the
  * sequence should advance to. The bump is applied inside createPatient's transaction
- * so a failed insert never leaves a gap (audit finding F3). */
+ * so a failed insert never leaves a gap (audit finding F3).
+ *
+ * The stored `client_code_next` counter can lag behind reality when patients were
+ * imported or migrated with codes that didn't advance it (e.g. an external import
+ * wrote `P-0051` while the counter still reads `1`). Reusing such a code would hit
+ * the unique index on patients.code and silently roll the insert back. To stay
+ * robust we start past the highest code already in use for this prefix. */
 async function computeClientCode(): Promise<{ code: string; next: number }> {
+  const db = await getDb();
   const s = await getSettings();
-  const next = Number(s.client_code_next) || 1;
+  const prefix = s.client_code_prefix ?? "";
   const padding = Number(s.client_code_padding) || 4;
-  const code = `${s.client_code_prefix}${String(next).padStart(padding, "0")}`;
+  let next = Number(s.client_code_next) || 1;
+
+  const rows = await db.select<{ code: string | null }[]>(
+    "SELECT code FROM patients WHERE code LIKE $1 || '%'",
+    [prefix],
+  );
+  for (const r of rows) {
+    if (!r.code) continue;
+    const suffix = r.code.slice(prefix.length);
+    if (!/^\d+$/.test(suffix)) continue; // ignore codes that don't fit the scheme
+    next = Math.max(next, Number(suffix) + 1);
+  }
+
+  const code = `${prefix}${String(next).padStart(padding, "0")}`;
   return { code, next };
 }
 
@@ -295,42 +315,37 @@ export async function getPatientStatement(
 export async function createPatient(input: PatientInput): Promise<number> {
   const db = await getDb();
   const { code, next } = await computeClientCode();
-  await db.execute("BEGIN");
-  try {
-    // Advance the code sequence and insert atomically — a failed insert rolls back
-    // the bump, so codes never gap (F3).
-    await db.execute(
-      `INSERT INTO settings (key, value) VALUES ('client_code_next', $1)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-      [String(next + 1)],
-    );
-    const res = await db.execute(
-      `INSERT INTO patients
-         (code, full_name, phone, phone2, email, address, date_of_birth, national_id,
-          default_payer_id, default_coverage_pct, insurance_policy_no, photo, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
-      [
-        code,
-        input.full_name,
-        input.phone ?? null,
-        input.phone2 ?? null,
-        input.email ?? null,
-        input.address ?? null,
-        input.date_of_birth ?? null,
-        input.national_id ?? null,
-        input.default_payer_id ?? null,
-        input.default_coverage_pct ?? 0,
-        input.insurance_policy_no ?? null,
-        input.photo ?? null,
-        input.notes ?? null,
-      ],
-    );
-    await db.execute("COMMIT");
-    return res.lastInsertId ?? 0;
-  } catch (err) {
-    await db.execute("ROLLBACK");
-    throw err;
-  }
+  // No BEGIN/COMMIT here: frontend transactions land on different pooled
+  // connections and self-lock. The unique index on patients.code is the real
+  // duplicate guard; the counter below is advisory — if we crash before
+  // bumping it, computeClientCode's scan of existing codes self-heals (F3).
+  const res = await db.execute(
+    `INSERT INTO patients
+       (code, full_name, phone, phone2, email, address, date_of_birth, national_id,
+        default_payer_id, default_coverage_pct, insurance_policy_no, photo, notes)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+    [
+      code,
+      input.full_name,
+      input.phone ?? null,
+      input.phone2 ?? null,
+      input.email ?? null,
+      input.address ?? null,
+      input.date_of_birth ?? null,
+      input.national_id ?? null,
+      input.default_payer_id ?? null,
+      input.default_coverage_pct ?? 0,
+      input.insurance_policy_no ?? null,
+      input.photo ?? null,
+      input.notes ?? null,
+    ],
+  );
+  await db.execute(
+    `INSERT INTO settings (key, value) VALUES ('client_code_next', $1)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+    [String(next + 1)],
+  );
+  return res.lastInsertId ?? 0;
 }
 
 export async function updatePatient(

@@ -15,6 +15,7 @@ import {
   IdCard,
   ShoppingCart,
   FileText,
+  CreditCard,
 } from "lucide-react";
 import { toast } from "sonner";
 import { notifyError } from "@/lib/errors";
@@ -31,6 +32,7 @@ import {
 } from "@/components/ui/table";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { PaymentDialog } from "@/components/payment-dialog";
 import { PrescriptionDialog } from "@/components/prescription-dialog";
 import { AppointmentDialog } from "@/components/appointment-dialog";
 import {
@@ -101,6 +103,18 @@ export default function PatientDetailPage() {
   const [apptOpen, setApptOpen] = useState(false);
   const [confirmPatient, setConfirmPatient] = useState(false);
   const [rxToDelete, setRxToDelete] = useState<number | null>(null);
+  // Take a payment right here instead of sending staff four screens deep
+  // (patient → sales → sale → record payment).
+  const [paySale, setPaySale] = useState<{
+    id: number;
+    balance: number;
+  } | null>(null);
+  const unpaidSales = (sales ?? []).filter(
+    (s) => s.balance > 0 && s.status !== "void",
+  );
+  const oldestUnpaid = unpaidSales.length
+    ? unpaidSales.reduce((a, b) => (a.sale_date <= b.sale_date ? a : b))
+    : null;
 
   if (isLoading)
     return <p className="text-muted-foreground">{t("common.loading")}</p>;
@@ -164,34 +178,50 @@ export default function PatientDetailPage() {
             </Link>
           </Button>
           <Button variant="outline" onClick={() => setConfirmPatient(true)}>
-            <Trash2 className="text-destructive size-4" /> {t("patients.archive")}
+            <Trash2 className="text-destructive size-4" />{" "}
+            {t("patients.archive")}
           </Button>
         </div>
       </div>
 
       {summary && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <StatCard
-            label={t("patients.invoices")}
-            value={String(summary.invoice_count)}
-          />
-          <StatCard
-            label={t("patients.totalInvoiced")}
-            value={formatDZD(summary.total_invoiced, symbol)}
-          />
-          <StatCard
-            label={t("patients.outstanding")}
-            value={formatDZD(summary.outstanding, symbol)}
-            highlight={summary.outstanding > 0}
-          />
-          <StatCard
-            label={t("patients.lastPayment")}
-            value={
-              summary.last_payment_date
-                ? formatDate(summary.last_payment_date)
-                : "—"
-            }
-          />
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatCard
+              label={t("patients.invoices")}
+              value={String(summary.invoice_count)}
+            />
+            <StatCard
+              label={t("patients.totalInvoiced")}
+              value={formatDZD(summary.total_invoiced, symbol)}
+            />
+            <StatCard
+              label={t("patients.outstanding")}
+              value={formatDZD(summary.outstanding, symbol)}
+              highlight={summary.outstanding > 0}
+            />
+            <StatCard
+              label={t("patients.lastPayment")}
+              value={
+                summary.last_payment_date
+                  ? formatDate(summary.last_payment_date)
+                  : "—"
+              }
+            />
+          </div>
+          {oldestUnpaid && (
+            <Button
+              onClick={() =>
+                setPaySale({
+                  id: oldestUnpaid.id,
+                  balance: oldestUnpaid.balance,
+                })
+              }
+            >
+              <CreditCard className="me-1.5 size-4" />
+              {t("sales.recordPayment")}
+            </Button>
+          )}
         </div>
       )}
 
@@ -459,6 +489,7 @@ export default function PatientDetailPage() {
                   <TableHead>{t("common.total")}</TableHead>
                   <TableHead>{t("common.balance")}</TableHead>
                   <TableHead>{t("common.status")}</TableHead>
+                  <TableHead className="w-0" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -476,6 +507,21 @@ export default function PatientDetailPage() {
                       <Badge variant={statusVariant[s.status]}>
                         {t(`saleStatus.${s.status}`)}
                       </Badge>
+                    </TableCell>
+                    {/* stopPropagation: the row itself navigates to the sale */}
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      {s.balance > 0 && s.status !== "void" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            setPaySale({ id: s.id, balance: s.balance })
+                          }
+                        >
+                          <CreditCard className="me-1 size-4" />
+                          {t("sales.recordPayment")}
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -540,6 +586,16 @@ export default function PatientDetailPage() {
         title={t("patients.deletePrescriptionTitle")}
         confirmText={t("common.delete")}
         onConfirm={handleDeleteRx}
+      />
+      <PaymentDialog
+        key={paySale ? `pay-${paySale.id}` : "pay-closed"}
+        saleId={paySale?.id ?? 0}
+        balance={paySale?.balance ?? 0}
+        currencySymbol={symbol}
+        open={paySale != null}
+        onOpenChange={(open) => {
+          if (!open) setPaySale(null);
+        }}
       />
     </div>
   );

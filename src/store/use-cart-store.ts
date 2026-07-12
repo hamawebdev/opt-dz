@@ -25,6 +25,8 @@ export interface CartSnapshot {
   lines: CartLine[];
   customerId: number | null;
   customerName: string | null;
+  /** Optional prescription to attach to the sale; only meaningful with a customer. */
+  prescriptionId: number | null;
   discountType: DiscountType;
   discountValue: string;
   payerId: string;
@@ -46,6 +48,7 @@ interface CartState extends CartSnapshot {
   clear: () => void;
 
   setCustomer: (id: number | null, name: string | null) => void;
+  setPrescriptionId: (id: number | null) => void;
   setDiscount: (type: DiscountType, value: string) => void;
   setPayer: (payerId: string, coveragePct: string) => void;
   setPaymentMethod: (method: string) => void;
@@ -61,6 +64,7 @@ const EMPTY: CartSnapshot & { activeHeldId: number | null } = {
   lines: [],
   customerId: null,
   customerName: null,
+  prescriptionId: null,
   discountType: "amount",
   discountValue: "",
   payerId: "none",
@@ -137,7 +141,9 @@ export const useCartStore = create<CartState>()(
       clear: () => set({ ...EMPTY }),
 
       setCustomer: (customerId, customerName) =>
-        set({ customerId, customerName }),
+        // A prescription belongs to a specific patient — never carry it over.
+        set({ customerId, customerName, prescriptionId: null }),
+      setPrescriptionId: (prescriptionId) => set({ prescriptionId }),
       setDiscount: (discountType, discountValue) =>
         set({ discountType, discountValue }),
       setPayer: (payerId, coveragePct) => set({ payerId, coveragePct }),
@@ -146,7 +152,9 @@ export const useCartStore = create<CartState>()(
       setActiveHeldId: (activeHeldId) => set({ activeHeldId }),
 
       loadSnapshot: (snapshot, heldId) =>
-        set({ ...snapshot, activeHeldId: heldId }),
+        // Spread EMPTY first: held-sale payloads saved before a field existed
+        // (e.g. prescriptionId) must not leak the previous cart's value.
+        set({ ...EMPTY, ...snapshot, activeHeldId: heldId }),
     }),
     {
       // Transient crash-resilience for the *current* cart only; canonical parked

@@ -103,9 +103,46 @@ async mergePatients(keepId: number, dupId: number) : Promise<Result<null, string
     else return { status: "error", error: e  as any };
 }
 },
+async recordStockChange(input: StockChangeInput) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("record_stock_change", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
- * Checkpoints the WAL so the `.db` file is self-contained, then copies it to
- * `dest_path` (a full path with filename chosen by the frontend). Returns the path.
+ * Advances a job's status, stamps delivered_at at 'collected', and records the
+ * stage change in job_events (per-stage history, H1) — atomically. Replaces the
+ * frontend transaction in `src/db/jobs.ts`.
+ */
+async updateJobStatus(jobId: number, status: string, note: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_job_status", { jobId, status, note }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Merges colour `from_id` into `into_id`: re-points every product/variant FK and
+ * the denormalized variant colour mirror, moves aliases, then archives the
+ * source — atomically (a half-merged colour is the bad state). Replaces the
+ * frontend transaction in `src/db/colors.ts`.
+ */
+async mergeColor(fromId: number, intoId: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("merge_color", { fromId, intoId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Writes a consistent snapshot of the live database to `dest_path` (a full path
+ * with filename chosen by the frontend) via `VACUUM INTO` — SQLite's online
+ * backup: correct even while other connections keep writing (no file copy of a
+ * moving target), and the output is compacted. Returns the path.
  */
 async backupDatabase(destPath: string) : Promise<Result<string, string>> {
     try {
@@ -203,6 +240,30 @@ export type SaleItemInput = { product_id: number | null;
  * When set, stock is tracked on this product variant instead of the product.
  */
 variant_id: number | null; description: string; unit_price: number; quantity: number; item_discount: number }
+/**
+ * Atomic stock change (delivery or adjustment) for a product or a variant.
+ * Replaces the frontend BEGIN/COMMIT transactions in `src/db/stock.ts`, which
+ * were unsafe on the shared pool (each statement lands on an arbitrary pooled
+ * connection). The invariant: on-hand quantity never diverges from the
+ * movement ledger, and a supplier debt is only booked with its delivery.
+ */
+export type StockChangeInput = { product_id: number | null; 
+/**
+ * When set, stock is tracked on this product variant instead of the product.
+ */
+variant_id: number | null; 
+/**
+ * "delivery" or "adjustment" — recorded verbatim in stock_movements.type.
+ */
+movement_type: string; quantity_change: number; 
+/**
+ * When set, becomes the product/variant's new purchase price (centimes).
+ */
+purchase_price: number | null; note: string | null; supplier_id: number | null; 
+/**
+ * Total purchase cost (centimes) to book as a supplier debt.
+ */
+debt_amount: number | null }
 
 /** tauri-specta globals **/
 

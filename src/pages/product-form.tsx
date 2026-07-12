@@ -5,7 +5,9 @@ import { z } from "zod";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { ArrowLeft, Sparkles, Printer } from "lucide-react";
+import { ArrowLeft, ChevronDown, Sparkles, Printer } from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useSimpleMode } from "@/store/use-app-store";
 import { toast } from "sonner";
 import { notifyError } from "@/lib/errors";
 import { Button } from "@/components/ui/button";
@@ -113,6 +115,13 @@ export default function ProductFormPage() {
   const { data: product } = useProduct(productId);
   const create = useCreateProduct();
   const update = useUpdateProduct();
+
+  // Simple mode: a new product needs only type, name, barcode, price and
+  // quantity. The rest sits behind "More details" (hidden fields keep their
+  // values on submit). Editing always shows everything.
+  const simpleMode = useSimpleMode();
+  const [showMore, setShowMore] = useState(false);
+  const expanded = !simpleMode || isEdit || showMore;
 
   const { data: categories } = useCategories();
   const { data: brands } = useBrandRows();
@@ -349,66 +358,70 @@ export default function ProductFormPage() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="category_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("inventory.category")}</FormLabel>
-                      <ManageSelect
-                        options={categoryOpts}
-                        value={field.value ?? null}
-                        onChange={field.onChange}
-                        onCreate={async (name) =>
-                          String(await createCategory.mutateAsync(name))
-                        }
-                        placeholder={t("inventory.selectCategory")}
-                        addLabel={t("inventory.addCategory")}
-                      />
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="brand_id"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("inventory.brand")}</FormLabel>
-                      <ManageSelect
-                        options={brandOpts}
-                        value={field.value ?? null}
-                        onChange={field.onChange}
-                        onCreate={async (name) =>
-                          String(await createBrand.mutateAsync(name))
-                        }
-                        placeholder={t("inventory.selectBrand")}
-                        addLabel={t("inventory.addBrand")}
-                      />
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+              {expanded && (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="category_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("inventory.category")}</FormLabel>
+                        <ManageSelect
+                          options={categoryOpts}
+                          value={field.value ?? null}
+                          onChange={field.onChange}
+                          onCreate={async (name) =>
+                            String(await createCategory.mutateAsync(name))
+                          }
+                          placeholder={t("inventory.selectCategory")}
+                          addLabel={t("inventory.addCategory")}
+                        />
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="brand_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("inventory.brand")}</FormLabel>
+                        <ManageSelect
+                          options={brandOpts}
+                          value={field.value ?? null}
+                          onChange={field.onChange}
+                          onCreate={async (name) =>
+                            String(await createBrand.mutateAsync(name))
+                          }
+                          placeholder={t("inventory.selectBrand")}
+                          addLabel={t("inventory.addBrand")}
+                        />
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              )}
 
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="reference"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("inventory.referenceCode")}</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder={t("inventory.referencePlaceholder")}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {expanded && (
+                  <FormField
+                    control={form.control}
+                    name="reference"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("inventory.referenceCode")}</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder={t("inventory.referencePlaceholder")}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
                 {!isService && (
                   <FormField
                     control={form.control}
@@ -455,7 +468,7 @@ export default function ProductFormPage() {
                 )}
               </div>
 
-              {!isService && (
+              {expanded && !isService && (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <FormField
                     control={form.control}
@@ -495,7 +508,7 @@ export default function ProductFormPage() {
 
               {/* Product-level colour (simple products). Lenses have no colour;
                   variant products set colour per row in the variants editor. */}
-              {!isService && optType !== "lens" && (
+              {expanded && !isService && optType !== "lens" && (
                 <FormField
                   control={form.control}
                   name="color_id"
@@ -518,19 +531,21 @@ export default function ProductFormPage() {
               )}
 
               <div className="grid grid-cols-2 gap-4">
-                <FormField
-                  control={form.control}
-                  name="purchase_price"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t("inventory.purchasePrice")}</FormLabel>
-                      <FormControl>
-                        <Input {...numberProps(field)} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                {expanded && (
+                  <FormField
+                    control={form.control}
+                    name="purchase_price"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("inventory.purchasePrice")}</FormLabel>
+                        <FormControl>
+                          <Input {...numberProps(field)} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
                 <FormField
                   control={form.control}
                   name="selling_price"
@@ -570,44 +585,67 @@ export default function ProductFormPage() {
                       </FormItem>
                     )}
                   />
-                  <FormField
-                    control={form.control}
-                    name="min_stock"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          {t("inventory.lowStockThreshold")}
-                        </FormLabel>
-                        <FormControl>
-                          <Input {...numberProps(field)} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  {expanded && (
+                    <FormField
+                      control={form.control}
+                      name="min_stock"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            {t("inventory.lowStockThreshold")}
+                          </FormLabel>
+                          <FormControl>
+                            <Input {...numberProps(field)} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
                 </div>
               )}
 
-              {!isService && resolvedAttrs && resolvedAttrs.length > 0 && (
-                <div className="space-y-3 rounded-lg border p-4">
-                  <h3 className="text-sm font-medium">
-                    {t("inventory.attributes")}
-                  </h3>
-                  <ProductAttributeFields
-                    attributes={resolvedAttrs}
-                    values={attrValues}
-                    onChange={(id, val) =>
-                      setAttrValues((p) => ({ ...p, [id]: val }))
-                    }
-                  />
-                </div>
-              )}
+              {expanded &&
+                !isService &&
+                resolvedAttrs &&
+                resolvedAttrs.length > 0 && (
+                  <div className="space-y-3 rounded-lg border p-4">
+                    <h3 className="text-sm font-medium">
+                      {t("inventory.attributes")}
+                    </h3>
+                    <ProductAttributeFields
+                      attributes={resolvedAttrs}
+                      values={attrValues}
+                      onChange={(id, val) =>
+                        setAttrValues((p) => ({ ...p, [id]: val }))
+                      }
+                    />
+                  </div>
+                )}
 
               {isEdit && !isService && productId != null && (
                 <>
                   <ProductVariantsEditor productId={productId} />
                   <ProductImagesEditor productId={productId} />
                 </>
+              )}
+
+              {simpleMode && !isEdit && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground"
+                  onClick={() => setShowMore((v) => !v)}
+                >
+                  <ChevronDown
+                    className={cn(
+                      "me-1 size-4 transition-transform",
+                      showMore && "rotate-180",
+                    )}
+                  />
+                  {t(showMore ? "common.fewerDetails" : "common.moreDetails")}
+                </Button>
               )}
 
               <div className="flex justify-end gap-2 pt-2">

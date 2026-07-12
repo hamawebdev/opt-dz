@@ -7,7 +7,10 @@ import ar from "@/locales/ar/translation.json";
 export const SUPPORTED_LANGUAGES = ["fr", "ar", "en"] as const;
 export type Language = (typeof SUPPORTED_LANGUAGES)[number];
 
-export const DEFAULT_LANGUAGE: Language = "fr";
+// Arabic is what most staff read most comfortably, so a fresh install starts
+// in Arabic with it pre-selected in onboarding; users persist their own choice
+// on first run (readPersistedLanguage), so existing installs are unaffected.
+export const DEFAULT_LANGUAGE: Language = "ar";
 
 /** Languages that render right-to-left. */
 export const RTL_LANGUAGES: Language[] = ["ar"];

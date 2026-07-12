@@ -80,6 +80,7 @@ export function useUpdateProduct() {
 export function useArchiveProduct() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silenceGlobal: true }, // callers notify errors themselves
     mutationFn: (id: number) => archiveProduct(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: productKeys.all }),
   });

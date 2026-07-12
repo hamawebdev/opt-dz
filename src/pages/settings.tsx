@@ -15,6 +15,7 @@ import {
   Plus,
   Pencil,
   Archive,
+  ChevronDown,
   SlidersHorizontal,
   Palette,
   Receipt as ReceiptIcon,
@@ -22,7 +23,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useAppStore } from "@/store/use-app-store";
+import { cn } from "@/lib/utils";
+import { useAppStore, useSimpleMode } from "@/store/use-app-store";
 import { useSaveSettings, useSettings } from "@/hooks/use-settings";
 import { listStaff, createStaff } from "@/db/staff";
 import { listAudit } from "@/db/audit";
@@ -88,6 +90,14 @@ export default function SettingsPage() {
   const setLanguage = useAppStore((s) => s.setLanguage);
   const { data: settings } = useSettings();
 
+  // Simple mode shows only the everyday sections (shop info, language, look,
+  // interface mode, backups). The technical sections — taxes, catalog admin,
+  // printer, reminders, staff/security, system — sit behind one toggle so
+  // daily users never scroll a wall of settings they don't understand.
+  const simpleMode = useSimpleMode();
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const advancedVisible = !simpleMode || showAdvanced;
+
   // plugin-os exposes platform()/version() synchronously under Tauri.
   const osInfo = `${platform()} ${version()}`;
 
@@ -144,29 +154,53 @@ export default function SettingsPage() {
 
       <InterfaceModeSettings />
 
-      {settings && <TaxInvoiceSettings settings={settings} />}
-
-      {settings && <CatalogSettings settings={settings} />}
-
-      {settings && <ReceiptPrinterSettings settings={settings} />}
-
-      {settings && <RemindersSettings settings={settings} />}
-
+      {/* Backups are everyday-critical (protecting the shop's data), so they
+          stay with the simple sections. */}
       {settings && <DataBackupSection settings={settings} />}
 
-      {settings && <StaffSecuritySection settings={settings} />}
+      {simpleMode && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="text-muted-foreground self-start"
+          onClick={() => setShowAdvanced((v) => !v)}
+        >
+          <ChevronDown
+            className={cn(
+              "me-1 size-4 transition-transform",
+              showAdvanced && "rotate-180",
+            )}
+          />
+          {t(showAdvanced ? "settings.hideAdvanced" : "settings.showAdvanced")}
+        </Button>
+      )}
 
-      {import.meta.env.DEV && <DemoDataSection />}
+      {advancedVisible && (
+        <>
+          {settings && <TaxInvoiceSettings settings={settings} />}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("settings.system")}</CardTitle>
-          <CardDescription>{t("settings.systemDesc")}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm">{osInfo || "…"}</p>
-        </CardContent>
-      </Card>
+          {settings && <CatalogSettings settings={settings} />}
+
+          {settings && <ReceiptPrinterSettings settings={settings} />}
+
+          {settings && <RemindersSettings settings={settings} />}
+
+          {settings && <StaffSecuritySection settings={settings} />}
+
+          {import.meta.env.DEV && <DemoDataSection />}
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{t("settings.system")}</CardTitle>
+              <CardDescription>{t("settings.systemDesc")}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm">{osInfo || "…"}</p>
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   );
 }
@@ -708,6 +742,9 @@ function DataBackupSection({ settings }: { settings: ShopSettings }) {
       await relaunch();
     } catch (err) {
       notifyError(err, t("problem.actionFailed"));
+    } finally {
+      // On success the app relaunches anyway; if relaunch itself rejects the
+      // button must not stay disabled forever.
       setBusy(null);
     }
   }

@@ -40,10 +40,14 @@ function usePageTitle(): string {
 
 export default function Layout() {
   const title = usePageTitle();
+  const { i18n } = useTranslation();
 
   // Run a scheduled database backup once per app session if one is due.
+  // Delayed well past startup: the first page's queries and the backup snapshot
+  // would otherwise compete for the database at the busiest moment.
   useEffect(() => {
-    void runAutoBackupIfDue();
+    const id = window.setTimeout(() => void runAutoBackupIfDue(), 45_000);
+    return () => window.clearTimeout(id);
   }, []);
 
   return (
@@ -66,7 +70,11 @@ export default function Layout() {
           </div>
         </main>
       </SidebarInset>
-      <Toaster richColors position="top-right" />
+      {/* Toasts hug the reading-start corner, so top-left in Arabic (RTL). */}
+      <Toaster
+        richColors
+        position={i18n.dir() === "rtl" ? "top-left" : "top-right"}
+      />
     </SidebarProvider>
   );
 }

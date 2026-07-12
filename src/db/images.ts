@@ -41,20 +41,12 @@ export async function setPrimaryImage(
   productId: number,
 ): Promise<void> {
   const db = await getDb();
-  await db.execute("BEGIN");
-  try {
-    await db.execute(
-      "UPDATE product_images SET is_primary = 0 WHERE product_id = $1",
-      [productId],
-    );
-    await db.execute("UPDATE product_images SET is_primary = 1 WHERE id = $1", [
-      id,
-    ]);
-    await db.execute("COMMIT");
-  } catch (err) {
-    await db.execute("ROLLBACK");
-    throw err;
-  }
+  // Single statement so it's inherently atomic — multi-statement BEGIN/COMMIT
+  // from the frontend lands on different pooled connections and self-locks.
+  await db.execute(
+    "UPDATE product_images SET is_primary = CASE WHEN id = $1 THEN 1 ELSE 0 END WHERE product_id = $2",
+    [id, productId],
+  );
 }
 
 /** Primary image data-URI per product id, for catalog thumbnails. */

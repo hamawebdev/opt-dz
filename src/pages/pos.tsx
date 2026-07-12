@@ -190,6 +190,7 @@ export default function PosPage() {
       lines: s.lines,
       customerId: s.customerId,
       customerName: s.customerName,
+      prescriptionId: s.prescriptionId,
       discountType: s.discountType,
       discountValue: s.discountValue,
       payerId: s.payerId,
@@ -234,7 +235,8 @@ export default function PosPage() {
     try {
       const id = await create.mutateAsync({
         patient_id: s.customerId,
-        prescription_id: null,
+        // Chosen in the customer bar; only meaningful for a known customer.
+        prescription_id: s.customerId != null ? s.prescriptionId : null,
         sale_date: today(),
         discount_type: s.discountType,
         discount_value: tot.discountStored,
@@ -296,7 +298,9 @@ export default function PosPage() {
       ) : (
         <div className="flex min-h-0 flex-1 gap-3">
           <div className="min-w-0 flex-[1.7]">{catalog}</div>
-          <div className="w-[clamp(18rem,30vw,24rem)] shrink-0">{cartPanel}</div>
+          <div className="w-[clamp(18rem,30vw,24rem)] shrink-0">
+            {cartPanel}
+          </div>
         </div>
       )}
 

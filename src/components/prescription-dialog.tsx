@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { HelpHint } from "@/components/help-hint";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -73,6 +74,18 @@ const numLabels: Record<NumField, string> = {
   seg: "SEG",
 };
 
+// Plain-language one-liner behind a "?" next to each cryptic column header.
+const numHelpKeys: Record<NumField | "base", string> = {
+  sphere: "help.rxSphere",
+  cylinder: "help.rxCylinder",
+  axis: "help.rxAxis",
+  add: "help.rxAdd",
+  pd: "help.rxPd",
+  prism: "help.rxPrism",
+  seg: "help.rxSeg",
+  base: "help.rxBase",
+};
+
 type EyeState = Record<NumField, string> & { base: string };
 const emptyEye = (): EyeState => ({
   sphere: "",
@@ -84,6 +97,21 @@ const emptyEye = (): EyeState => ({
   seg: "",
   base: "",
 });
+
+// Which fields failed validation, so each offending input can be marked in red
+// instead of one vague toast over ~30 numeric cells.
+type InvalidMap = Partial<Record<NumField | "base", boolean>>;
+const hasInvalid = (m: InvalidMap) => Object.values(m).some(Boolean);
+function eyeInvalid(s: EyeState): InvalidMap {
+  return {
+    sphere: !isSphere(s.sphere),
+    cylinder: !isCylinder(s.cylinder),
+    axis: !isAxis(s.axis),
+    add: !isAddition(s.add),
+    pd: !isPd(s.pd),
+    base: !isBaseDir(s.base),
+  };
+}
 
 export function PrescriptionDialog({
   patientId,
@@ -100,6 +128,8 @@ export function PrescriptionDialog({
   const [prescriber, setPrescriber] = useState(defaultPrescriber ?? "");
   const [expiry, setExpiry] = useState("");
   const [notes, setNotes] = useState("");
+  const [invalidR, setInvalidR] = useState<InvalidMap>({});
+  const [invalidL, setInvalidL] = useState<InvalidMap>({});
   const create = useCreatePrescription();
 
   function reset() {
@@ -110,23 +140,25 @@ export function PrescriptionDialog({
     setPrescriber("");
     setExpiry("");
     setNotes("");
+    setInvalidR({});
+    setInvalidL({});
   }
 
   function setEye(eye: EyeKey, key: keyof EyeState, value: string) {
     const setter = eye === "r" ? setRight : setLeft;
     setter((prev) => ({ ...prev, [key]: value }));
+    // Editing a highlighted field clears its mark until the next save attempt.
+    const setInv = eye === "r" ? setInvalidR : setInvalidL;
+    setInv((prev) => (prev[key] ? { ...prev, [key]: false } : prev));
   }
 
   async function handleSave() {
     // Optical sanity check before anything reaches the lab (audit finding G1).
-    const eyeValid = (s: EyeState) =>
-      isSphere(s.sphere) &&
-      isCylinder(s.cylinder) &&
-      isAxis(s.axis) &&
-      isAddition(s.add) &&
-      isPd(s.pd) &&
-      isBaseDir(s.base);
-    if (!eyeValid(right) || !eyeValid(left)) {
+    const invR = eyeInvalid(right);
+    const invL = eyeInvalid(left);
+    setInvalidR(invR);
+    setInvalidL(invL);
+    if (hasInvalid(invR) || hasInvalid(invL)) {
       toast.error(t("prescription.invalidValues"));
       return;
     }
@@ -164,9 +196,14 @@ export function PrescriptionDialog({
     }
   }
 
-  function renderEyeRow(label: string, eye: EyeKey, state: EyeState) {
+  function renderEyeRow(
+    label: string,
+    eye: EyeKey,
+    state: EyeState,
+    invalid: InvalidMap,
+  ) {
     return (
-      <div className="grid grid-cols-[2rem_repeat(7,1fr)_3rem] items-center gap-1.5">
+      <div className="grid grid-cols-[3.5rem_repeat(7,1fr)_3rem] items-center gap-1.5">
         <span className="text-muted-foreground text-sm font-semibold">
           {label}
         </span>
@@ -177,6 +214,7 @@ export function PrescriptionDialog({
             step="0.25"
             inputMode="decimal"
             aria-label={`${label} ${numLabels[f]}`}
+            aria-invalid={invalid[f] || undefined}
             value={state[f]}
             onChange={(e) => setEye(eye, f, e.target.value)}
             className="h-9 px-1 text-center"
@@ -184,6 +222,7 @@ export function PrescriptionDialog({
         ))}
         <Input
           aria-label={`${label} base`}
+          aria-invalid={invalid.base || undefined}
           value={state.base}
           onChange={(e) => setEye(eye, "base", e.target.value)}
           className="h-9 px-1 text-center"
@@ -244,22 +283,24 @@ export function PrescriptionDialog({
           </div>
 
           <div className="space-y-2">
-            <div className="grid grid-cols-[2rem_repeat(7,1fr)_3rem] gap-1.5">
+            <div className="grid grid-cols-[3.5rem_repeat(7,1fr)_3rem] gap-1.5">
               <span />
               {numFields.map((f) => (
                 <span
                   key={f}
-                  className="text-muted-foreground text-center text-xs font-medium"
+                  className="text-muted-foreground inline-flex items-center justify-center gap-0.5 text-center text-xs font-medium"
                 >
                   {numLabels[f]}
+                  <HelpHint text={t(numHelpKeys[f])} label={numLabels[f]} />
                 </span>
               ))}
-              <span className="text-muted-foreground text-center text-xs font-medium">
+              <span className="text-muted-foreground inline-flex items-center justify-center gap-0.5 text-center text-xs font-medium">
                 BASE
+                <HelpHint text={t(numHelpKeys.base)} label="BASE" />
               </span>
             </div>
-            {renderEyeRow("OD", "r", right)}
-            {renderEyeRow("OS", "l", left)}
+            {renderEyeRow(t("prescription.rightEye"), "r", right, invalidR)}
+            {renderEyeRow(t("prescription.leftEye"), "l", left, invalidL)}
             <p className="text-muted-foreground text-xs">
               {t("prescription.legend")}
             </p>

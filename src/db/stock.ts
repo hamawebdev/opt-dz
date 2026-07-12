@@ -1,5 +1,11 @@
-import { getDb } from "@/lib/db";
+import { getDb, unwrap } from "@/lib/db";
+import { commands } from "@/lib/bindings";
 import type { StockMovement } from "@/types";
+
+// All stock writes go through the Rust `record_stock_change` command so the
+// quantity update, movement ledger entry, purchase-price update and supplier
+// debt land in ONE real transaction. (Frontend BEGIN/COMMIT is unsafe here:
+// each statement runs on an arbitrary pooled connection.)
 
 /** Stock movement history for a product, most recent first. */
 export async function listMovements(
@@ -27,40 +33,18 @@ export async function recordDelivery(args: {
   /** Total purchase cost (centimes) to book as a supplier debt. */
   debtAmount?: number | null;
 }): Promise<void> {
-  const db = await getDb();
-  await db.execute("BEGIN");
-  try {
-    await db.execute(
-      "UPDATE products SET quantity = quantity + $1, updated_at = datetime('now') WHERE id = $2",
-      [args.quantity, args.productId],
-    );
-    if (args.purchasePrice != null) {
-      await db.execute(
-        "UPDATE products SET purchase_price = $1 WHERE id = $2",
-        [args.purchasePrice, args.productId],
-      );
-    }
-    await db.execute(
-      "INSERT INTO stock_movements (product_id, type, quantity_change, note) VALUES ($1, 'delivery', $2, $3)",
-      [args.productId, args.quantity, args.note ?? null],
-    );
-    if (args.supplierId && args.debtAmount && args.debtAmount > 0) {
-      await db.execute(
-        `INSERT INTO supplier_ledger (supplier_id, type, amount, note, ref)
-         VALUES ($1, 'purchase', $2, $3, $4)`,
-        [
-          args.supplierId,
-          args.debtAmount,
-          args.note ?? null,
-          `Delivery: product #${args.productId}`,
-        ],
-      );
-    }
-    await db.execute("COMMIT");
-  } catch (err) {
-    await db.execute("ROLLBACK");
-    throw err;
-  }
+  unwrap(
+    await commands.recordStockChange({
+      product_id: args.productId,
+      variant_id: null,
+      movement_type: "delivery",
+      quantity_change: args.quantity,
+      purchase_price: args.purchasePrice ?? null,
+      note: args.note ?? null,
+      supplier_id: args.supplierId ?? null,
+      debt_amount: args.debtAmount ?? null,
+    }),
+  );
 }
 
 /** Manual stock adjustment (positive or negative), e.g. corrections/breakage. The
@@ -71,22 +55,18 @@ export async function recordAdjustment(args: {
   quantityChange: number;
   note?: string | null;
 }): Promise<void> {
-  const db = await getDb();
-  await db.execute("BEGIN");
-  try {
-    await db.execute(
-      "UPDATE products SET quantity = quantity + $1, updated_at = datetime('now') WHERE id = $2",
-      [args.quantityChange, args.productId],
-    );
-    await db.execute(
-      "INSERT INTO stock_movements (product_id, type, quantity_change, note) VALUES ($1, 'adjustment', $2, $3)",
-      [args.productId, args.quantityChange, args.note ?? null],
-    );
-    await db.execute("COMMIT");
-  } catch (err) {
-    await db.execute("ROLLBACK");
-    throw err;
-  }
+  unwrap(
+    await commands.recordStockChange({
+      product_id: args.productId,
+      variant_id: null,
+      movement_type: "adjustment",
+      quantity_change: args.quantityChange,
+      purchase_price: null,
+      note: args.note ?? null,
+      supplier_id: null,
+      debt_amount: null,
+    }),
+  );
 }
 
 /** Variant stock change (delta, ±), logged as a movement against the variant so a
@@ -100,28 +80,18 @@ export async function recordVariantAdjustment(args: {
   note?: string | null;
 }): Promise<void> {
   if (!args.quantityChange) return;
-  const db = await getDb();
-  await db.execute("BEGIN");
-  try {
-    await db.execute(
-      "UPDATE product_variants SET quantity = quantity + $1, updated_at = datetime('now') WHERE id = $2",
-      [args.quantityChange, args.variantId],
-    );
-    await db.execute(
-      "INSERT INTO stock_movements (product_id, variant_id, type, quantity_change, note) VALUES ($1, $2, $3, $4, $5)",
-      [
-        args.productId,
-        args.variantId,
-        args.type ?? "adjustment",
-        args.quantityChange,
-        args.note ?? null,
-      ],
-    );
-    await db.execute("COMMIT");
-  } catch (err) {
-    await db.execute("ROLLBACK");
-    throw err;
-  }
+  unwrap(
+    await commands.recordStockChange({
+      product_id: args.productId,
+      variant_id: args.variantId,
+      movement_type: args.type ?? "adjustment",
+      quantity_change: args.quantityChange,
+      purchase_price: null,
+      note: args.note ?? null,
+      supplier_id: null,
+      debt_amount: null,
+    }),
+  );
 }
 
 /** Records a variant delivery: increments variant stock, logs a delivery movement,
@@ -135,38 +105,16 @@ export async function recordVariantDelivery(args: {
   supplierId?: number | null;
   debtAmount?: number | null;
 }): Promise<void> {
-  const db = await getDb();
-  await db.execute("BEGIN");
-  try {
-    await db.execute(
-      "UPDATE product_variants SET quantity = quantity + $1, updated_at = datetime('now') WHERE id = $2",
-      [args.quantity, args.variantId],
-    );
-    if (args.purchasePrice != null) {
-      await db.execute(
-        "UPDATE product_variants SET purchase_price = $1 WHERE id = $2",
-        [args.purchasePrice, args.variantId],
-      );
-    }
-    await db.execute(
-      "INSERT INTO stock_movements (product_id, variant_id, type, quantity_change, note) VALUES ($1, $2, 'delivery', $3, $4)",
-      [args.productId, args.variantId, args.quantity, args.note ?? null],
-    );
-    if (args.supplierId && args.debtAmount && args.debtAmount > 0) {
-      await db.execute(
-        `INSERT INTO supplier_ledger (supplier_id, type, amount, note, ref)
-         VALUES ($1, 'purchase', $2, $3, $4)`,
-        [
-          args.supplierId,
-          args.debtAmount,
-          args.note ?? null,
-          `Delivery: variant #${args.variantId}`,
-        ],
-      );
-    }
-    await db.execute("COMMIT");
-  } catch (err) {
-    await db.execute("ROLLBACK");
-    throw err;
-  }
+  unwrap(
+    await commands.recordStockChange({
+      product_id: args.productId,
+      variant_id: args.variantId,
+      movement_type: "delivery",
+      quantity_change: args.quantity,
+      purchase_price: args.purchasePrice ?? null,
+      note: args.note ?? null,
+      supplier_id: args.supplierId ?? null,
+      debt_amount: args.debtAmount ?? null,
+    }),
+  );
 }

@@ -1,5 +1,6 @@
-import { getDb } from "@/lib/db";
-import type { Color, ColorReviewRow } from "@/types";
+import { getDb, unwrap } from "@/lib/db";
+import { commands } from "@/lib/bindings";
+import type { Color } from "@/types";
 
 // Centralized colour vocabulary. Colours are admin-managed (staff pick, never create).
 // Mirrors the categories/brands taxonomy CRUD + `archived` pattern; archiving hides a
@@ -80,37 +81,15 @@ export async function setColorArchived(
 /**
  * Merges `fromId` into `intoId`: re-points every product/variant FK and the
  * denormalized variant colour mirror, moves aliases, then archives the source.
- * The long-term answer to any duplication that slips in. Transactional.
+ * The long-term answer to any duplication that slips in. Atomic — lives in the
+ * Rust `merge_color` command (frontend BEGIN/COMMIT is unsafe on the shared pool).
  */
 export async function mergeColor(
   fromId: number,
   intoId: number,
 ): Promise<void> {
   if (fromId === intoId) return;
-  const db = await getDb();
-  await db.execute("BEGIN");
-  try {
-    await db.execute("UPDATE products SET color_id = $1 WHERE color_id = $2", [
-      intoId,
-      fromId,
-    ]);
-    await db.execute(
-      `UPDATE product_variants
-       SET color_id = $1, color = (SELECT name FROM colors WHERE id = $1)
-       WHERE color_id = $2`,
-      [intoId, fromId],
-    );
-    // Re-point aliases, ignoring any that would collide with the target's aliases.
-    await db.execute(
-      "UPDATE OR IGNORE color_aliases SET color_id = $1 WHERE color_id = $2",
-      [intoId, fromId],
-    );
-    await db.execute("UPDATE colors SET archived = 1 WHERE id = $1", [fromId]);
-    await db.execute("COMMIT");
-  } catch (err) {
-    await db.execute("ROLLBACK");
-    throw err;
-  }
+  unwrap(await commands.mergeColor(fromId, intoId));
 }
 
 /** How many products + variants currently reference a colour (for the manager). */
@@ -185,52 +164,40 @@ export async function countColorReview(): Promise<number> {
 /**
  * Maps every unresolved row sharing `rawValue` to `colorId`: sets the underlying
  * product/variant FK (+ variant colour mirror), records the raw value as an alias
- * so it auto-maps next time, then marks the review rows resolved. Transactional.
+ * so it auto-maps next time, then marks the review rows resolved.
+ *
+ * Four idempotent set-based statements with `resolved` flipped LAST instead of a
+ * transaction (frontend BEGIN/COMMIT is unsafe on the shared pool): if anything
+ * fails midway the rows stay visible in the review list and re-running completes.
  */
 export async function resolveColorReview(
   rawValue: string,
   colorId: number,
 ): Promise<void> {
   const db = await getDb();
-  const rows = await db.select<ColorReviewRow[]>(
-    "SELECT * FROM color_import_review WHERE resolved = 0 AND raw_value = $1 COLLATE NOCASE",
+  await db.execute(
+    `UPDATE products SET color_id = $1
+     WHERE id IN (SELECT source_id FROM color_import_review
+                  WHERE resolved = 0 AND raw_value = $2 COLLATE NOCASE
+                    AND source = 'product')`,
+    [colorId, rawValue],
+  );
+  await db.execute(
+    `UPDATE product_variants
+        SET color_id = $1, color = (SELECT name FROM colors WHERE id = $1)
+     WHERE id IN (SELECT source_id FROM color_import_review
+                  WHERE resolved = 0 AND raw_value = $2 COLLATE NOCASE
+                    AND source <> 'product')`,
+    [colorId, rawValue],
+  );
+  await db.execute(
+    "INSERT OR IGNORE INTO color_aliases (color_id, alias) VALUES ($1, $2)",
+    [colorId, rawValue.trim().toLowerCase()],
+  );
+  await db.execute(
+    "UPDATE color_import_review SET resolved = 1 WHERE resolved = 0 AND raw_value = $1 COLLATE NOCASE",
     [rawValue],
   );
-  await db.execute("BEGIN");
-  try {
-    const name =
-      (
-        await db.select<{ name: string }[]>(
-          "SELECT name FROM colors WHERE id = $1",
-          [colorId],
-        )
-      )[0]?.name ?? null;
-    for (const r of rows) {
-      if (r.source === "product") {
-        await db.execute("UPDATE products SET color_id = $1 WHERE id = $2", [
-          colorId,
-          r.source_id,
-        ]);
-      } else {
-        await db.execute(
-          "UPDATE product_variants SET color_id = $1, color = $2 WHERE id = $3",
-          [colorId, name, r.source_id],
-        );
-      }
-      await db.execute(
-        "UPDATE color_import_review SET resolved = 1 WHERE id = $1",
-        [r.id],
-      );
-    }
-    await db.execute(
-      "INSERT OR IGNORE INTO color_aliases (color_id, alias) VALUES ($1, $2)",
-      [colorId, rawValue.trim().toLowerCase()],
-    );
-    await db.execute("COMMIT");
-  } catch (err) {
-    await db.execute("ROLLBACK");
-    throw err;
-  }
 }
 
 // ── Display helpers ──────────────────────────────────────────────────────────

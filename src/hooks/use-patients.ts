@@ -88,6 +88,7 @@ export function useUpdatePatient() {
 export function useArchivePatient() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silenceGlobal: true }, // callers notify errors themselves
     mutationFn: (id: number) => archivePatient(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: patientKeys.all }),
   });
@@ -133,6 +134,7 @@ export function useCreatePrescription() {
 export function useDeletePrescription(patientId: number) {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silenceGlobal: true }, // callers notify errors themselves
     mutationFn: (id: number) => deletePrescription(id),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: patientKeys.prescriptions(patientId) }),

@@ -73,6 +73,9 @@ export function useCreateSale() {
 export function useVoidSale() {
   const qc = useQueryClient();
   return useMutation({
+    // Every caller wraps mutateAsync and calls notifyError with a specific
+    // message, so the global fallback toast would duplicate it.
+    meta: { silenceGlobal: true },
     mutationFn: (args: { id: number; reason?: string | null }) =>
       voidSale(args.id, args.reason ?? null),
     onSuccess: () => {
@@ -96,6 +99,9 @@ export function useRecordPayment(saleId: number) {
       qc.invalidateQueries({ queryKey: saleKeys.payments(saleId) });
       qc.invalidateQueries({ queryKey: saleKeys.all });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+      // Payments can now be taken from the patient page; its outstanding
+      // summary must refresh too.
+      qc.invalidateQueries({ queryKey: ["patients"] });
     },
   });
 }
@@ -103,6 +109,7 @@ export function useRecordPayment(saleId: number) {
 export function useDeletePayment(saleId: number) {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silenceGlobal: true }, // callers notify errors themselves
     mutationFn: (paymentId: number) => deletePayment(paymentId, saleId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: saleKeys.detail(saleId) });

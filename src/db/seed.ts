@@ -270,23 +270,16 @@ const SEEDED_TABLES = [
  * (seeded by the Rust migrations) are kept; only their values are removed. */
 export async function clearSeedData(): Promise<void> {
   const db = await getDb();
-  await db.execute("PRAGMA foreign_keys = OFF");
-  await db.execute("BEGIN");
-  try {
-    for (const t of SEEDED_TABLES) await db.execute(`DELETE FROM ${t}`);
-    await db.execute(
-      `DELETE FROM sqlite_sequence WHERE name IN (${SEEDED_TABLES.map((t) => `'${t}'`).join(",")})`,
-    );
-    await db.execute(
-      "UPDATE settings SET value = '1' WHERE key IN ('invoice_next','client_code_next')",
-    );
-    await db.execute("COMMIT");
-  } catch (e) {
-    await db.execute("ROLLBACK");
-    throw e;
-  } finally {
-    await db.execute("PRAGMA foreign_keys = ON");
-  }
+  // No BEGIN/COMMIT or PRAGMA toggling: both are per-connection and the shared
+  // pool hands each statement to an arbitrary connection. The deletes are in
+  // FK-safe order and the whole wipe is idempotent — re-run it if it fails.
+  for (const t of SEEDED_TABLES) await db.execute(`DELETE FROM ${t}`);
+  await db.execute(
+    `DELETE FROM sqlite_sequence WHERE name IN (${SEEDED_TABLES.map((t) => `'${t}'`).join(",")})`,
+  );
+  await db.execute(
+    "UPDATE settings SET value = '1' WHERE key IN ('invoice_next','client_code_next')",
+  );
   console.info("[seed] cleared seeded tables");
 }
 

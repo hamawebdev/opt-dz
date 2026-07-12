@@ -29,6 +29,7 @@ function invalidateClaims(qc: ReturnType<typeof useQueryClient>) {
 export function useUpdateClaimStatus() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silenceGlobal: true }, // callers notify errors themselves
     mutationFn: (args: {
       id: number;
       status: ClaimStatus;

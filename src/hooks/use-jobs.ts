@@ -41,6 +41,7 @@ export function useCreateJob() {
 export function useUpdateJobStatus() {
   const qc = useQueryClient();
   return useMutation({
+    meta: { silenceGlobal: true }, // callers notify errors themselves
     mutationFn: (args: { id: number; status: JobStatus }) =>
       updateJobStatus(args.id, args.status),
     onSuccess: () => invalidate(qc),

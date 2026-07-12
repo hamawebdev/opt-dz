@@ -1,4 +1,6 @@
+import type * as React from "react";
 import { useTranslation } from "react-i18next";
+import { HelpHint } from "@/components/help-hint";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
@@ -17,7 +19,7 @@ function Row({
   strong,
   tone,
 }: {
-  label: string;
+  label: React.ReactNode;
   value: string;
   strong?: boolean;
   tone?: string;
@@ -129,7 +131,12 @@ export function PosCartSummary({
 
       {!simpleMode && totals.taxAmount > 0 && (
         <Row
-          label={t("common.inclTva")}
+          label={
+            <span className="inline-flex items-center gap-1">
+              {t("common.inclTva")}
+              <HelpHint text={t("help.tva")} />
+            </span>
+          }
           value={formatDZD(totals.taxAmount, symbol)}
           tone="text-muted-foreground"
         />
@@ -143,7 +150,12 @@ export function PosCartSummary({
       )}
       {totals.timbre > 0 && (
         <Row
-          label={t("common.droitDeTimbre")}
+          label={
+            <span className="inline-flex items-center gap-1">
+              {t("common.droitDeTimbre")}
+              <HelpHint text={t("help.timbre")} />
+            </span>
+          }
           value={formatDZD(totals.timbre, symbol)}
           tone="text-muted-foreground"
         />

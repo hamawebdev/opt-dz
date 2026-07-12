@@ -1,7 +1,7 @@
 import Database from "@tauri-apps/plugin-sql";
 import type { Result } from "@/lib/bindings";
 
-let db: Database | null = null;
+let dbPromise: Promise<Database> | null = null;
 
 /**
  * Unwraps a tauri-specta command `Result`, throwing the error string on failure so
@@ -15,10 +15,17 @@ export function unwrap<T>(res: Result<T, string>): T {
 /**
  * Returns a lazily-initialized connection to the bundled SQLite database.
  * Migrations are defined in `src-tauri/src/lib.rs` and run automatically on load.
+ *
+ * Memoizes the in-flight promise, not the resolved value: at startup dozens of
+ * callers race here before the first load resolves, and each unmemoized call
+ * would open another connection pool on the same file (lock contention).
  */
-export async function getDb(): Promise<Database> {
-  if (!db) {
-    db = await Database.load("sqlite:app.db");
+export function getDb(): Promise<Database> {
+  if (!dbPromise) {
+    dbPromise = Database.load("sqlite:app.db").catch((err: unknown) => {
+      dbPromise = null; // a failed load must not poison every later call
+      throw err;
+    });
   }
-  return db;
+  return dbPromise;
 }

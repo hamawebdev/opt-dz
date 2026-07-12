@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/table";
 import { Empty, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { HelpHint } from "@/components/help-hint";
 import { PromptDialog } from "@/components/prompt-dialog";
 import { PaymentDialog } from "@/components/payment-dialog";
 import { ReturnDialog } from "@/components/return-dialog";
@@ -43,7 +44,7 @@ import { commands } from "@/lib/bindings";
 import { unwrap } from "@/lib/db";
 import { verifyManagerPin } from "@/lib/auth";
 import { logAudit } from "@/db/audit";
-import { useAppStore } from "@/store/use-app-store";
+import { useAppStore, useSimpleMode } from "@/store/use-app-store";
 import { buildReceiptLines } from "@/lib/receipt";
 import { formatDZD, formatDateTime } from "@/lib/format";
 import type { SaleStatus } from "@/types";
@@ -77,6 +78,7 @@ export default function SaleDetailPage() {
   const deletePayment = useDeletePayment(saleId);
   const currentStaffId = useAppStore((s) => s.currentStaffId);
   const currentStaffName = useAppStore((s) => s.currentStaffName);
+  const simpleMode = useSimpleMode();
 
   const [payOpen, setPayOpen] = useState(false);
   const [voidOpen, setVoidOpen] = useState(false);
@@ -288,24 +290,29 @@ export default function SaleDetailPage() {
               </div>
             )}
             <div className="flex justify-between border-t pt-2">
-              <span className="text-muted-foreground">
+              <span className="text-muted-foreground inline-flex items-center gap-1">
                 {t("common.totalTtc")}
+                <HelpHint text={t("help.ttc")} />
               </span>
               <span>{formatDZD(sale.total, symbol)}</span>
             </div>
-            {sale.tax_amount > 0 && (
+            {/* Tax line items are hidden in simple mode, mirroring the sale
+                form and POS cart; the amounts stay inside the totals. */}
+            {!simpleMode && sale.tax_amount > 0 && (
               <div className="text-muted-foreground flex justify-between text-xs">
-                <span>
+                <span className="inline-flex items-center gap-1">
                   {t("common.inclTva")}
                   {sale.tax_rate ? ` (${sale.tax_rate / 100}%)` : ""}
+                  <HelpHint text={t("help.tva")} />
                 </span>
                 <span>{formatDZD(sale.tax_amount, symbol)}</span>
               </div>
             )}
-            {sale.timbre_amount > 0 && (
+            {!simpleMode && sale.timbre_amount > 0 && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">
+                <span className="text-muted-foreground inline-flex items-center gap-1">
                   {t("common.droitDeTimbre")}
+                  <HelpHint text={t("help.timbre")} />
                 </span>
                 <span>{formatDZD(sale.timbre_amount, symbol)}</span>
               </div>
