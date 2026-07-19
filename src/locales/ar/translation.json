@@ -55,7 +55,8 @@
     "moreDetails": "تفاصيل أكثر",
     "fewerDetails": "تفاصيل أقل",
     "previous": "السابق",
-    "next": "التالي"
+    "next": "التالي",
+    "details": "التفاصيل"
   },
   "errors": {
     "loadTitle": "تعذّر تحميل هذه البيانات",
@@ -169,7 +170,8 @@
     "loadFailed": "تعذّر التحميل. يرجى المحاولة مرة أخرى.",
     "actionFailed": "حدث خطأ ما. يرجى المحاولة مرة أخرى.",
     "printFailed": "تعذّرت الطباعة. تحقق من الطابعة وحاول مرة أخرى.",
-    "databaseBusy": "التطبيق مشغول الآن. حاول مرة أخرى بعد لحظة."
+    "databaseBusy": "التطبيق مشغول الآن. حاول مرة أخرى بعد لحظة.",
+    "deleteFailed": "تعذّر الحذف. يرجى المحاولة مرة أخرى."
   },
   "category": {
     "frame": "إطار",
@@ -396,7 +398,17 @@
     "status_arrived": "حاضر",
     "status_done": "منتهٍ",
     "status_no_show": "لم يحضر",
-    "status_cancelled": "ملغى"
+    "status_cancelled": "ملغى",
+    "view_month": "الشهر",
+    "view_year": "السنة",
+    "countBadge": "{{n}} موعد",
+    "allOptometrists": "كل أخصائيي البصريات",
+    "markCancelled": "إلغاء الموعد",
+    "deleted": "تم حذف الموعد",
+    "deleteTitle": "حذف هذا الموعد؟",
+    "deleteBody": "سيُحذف موعد {{name}} نهائيًا. للاحتفاظ بالسجل، ألغِ الموعد بدل حذفه.",
+    "newAt": "موعد جديد يوم {{date}} على الساعة {{time}}",
+    "newOn": "موعد جديد يوم {{date}}"
   },
   "statement": {
     "title": "كشف حساب",
@@ -1139,5 +1151,22 @@
     "templateSaved": "تم حفظ النموذج",
     "templateLoaded": "تم تحميل النموذج “{{name}}”",
     "clickToLoad": "المس للتحميل"
+  },
+  "calendar": {
+    "settings": "إعدادات التقويم",
+    "status": "الحالة",
+    "filledChips": "تلوين المواعيد بالكامل",
+    "use24Hour": "نظام 24 ساعة",
+    "dayStartsAt": "يبدأ اليوم على الساعة",
+    "agendaGroupBy": "ترتيب الجدول حسب",
+    "happeningNow": "جارٍ الآن",
+    "nothingRightNow": "لا أحد مع أخصائي البصريات الآن.",
+    "weekOnSmallScreen": "عرض الأسبوع يحتاج شاشة أوسع. استعمل عرض اليوم هنا.",
+    "moreCount": "{{n}} أخرى…",
+    "searchAppointments": "ابحث في مواعيد هذا الشهر…",
+    "dayWithCount": "{{date}} — {{n}} موعد",
+    "conflictTitle": "هذا الوقت محجوز",
+    "conflictBody": "{{optometrist}} لديه {{other}} على الساعة {{otherTime}}. هل تنقل {{patient}} إلى {{time}} رغم ذلك؟",
+    "conflictProceed": "انقله رغم ذلك"
   }
 }

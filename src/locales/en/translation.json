@@ -55,7 +55,8 @@
     "moreDetails": "More details",
     "fewerDetails": "Fewer details",
     "previous": "Previous",
-    "next": "Next"
+    "next": "Next",
+    "details": "Details"
   },
   "errors": {
     "loadTitle": "Couldn't load this data",
@@ -169,7 +170,8 @@
     "loadFailed": "Couldn't load. Please try again.",
     "actionFailed": "Something didn't work. Please try again.",
     "printFailed": "Couldn't print. Check the printer and try again.",
-    "databaseBusy": "The app is busy right now. Please try again."
+    "databaseBusy": "The app is busy right now. Please try again.",
+    "deleteFailed": "Couldn't delete. Please try again."
   },
   "category": {
     "frame": "Frame",
@@ -396,7 +398,17 @@
     "status_arrived": "Arrived",
     "status_done": "Done",
     "status_no_show": "No-show",
-    "status_cancelled": "Cancelled"
+    "status_cancelled": "Cancelled",
+    "view_month": "Month",
+    "view_year": "Year",
+    "countBadge": "{{n}} appointments",
+    "allOptometrists": "All optometrists",
+    "markCancelled": "Cancel appointment",
+    "deleted": "Appointment deleted",
+    "deleteTitle": "Delete this appointment?",
+    "deleteBody": "{{name}}'s appointment will be removed for good. To keep the record, cancel it instead.",
+    "newAt": "New appointment on {{date}} at {{time}}",
+    "newOn": "New appointment on {{date}}"
   },
   "statement": {
     "title": "Account statement",
@@ -1139,5 +1151,22 @@
     "templateSaved": "Template saved",
     "templateLoaded": "Template “{{name}}” loaded",
     "clickToLoad": "Tap to load"
+  },
+  "calendar": {
+    "settings": "Calendar settings",
+    "status": "Status",
+    "filledChips": "Fill appointments with colour",
+    "use24Hour": "24-hour clock",
+    "dayStartsAt": "Day starts at",
+    "agendaGroupBy": "Group the agenda by",
+    "happeningNow": "Happening now",
+    "nothingRightNow": "No one is with an optometrist right now.",
+    "weekOnSmallScreen": "The week view needs a wider screen. Use the day view here.",
+    "moreCount": "{{n}} more…",
+    "searchAppointments": "Search this month's appointments…",
+    "dayWithCount": "{{date}} — {{n}} appointments",
+    "conflictTitle": "That time is already taken",
+    "conflictBody": "{{optometrist}} already has {{other}} at {{otherTime}}. Move {{patient}} to {{time}} anyway?",
+    "conflictProceed": "Move it anyway"
   }
 }

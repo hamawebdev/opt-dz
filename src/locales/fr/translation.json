@@ -55,7 +55,8 @@
     "moreDetails": "Plus de détails",
     "fewerDetails": "Moins de détails",
     "previous": "Précédent",
-    "next": "Suivant"
+    "next": "Suivant",
+    "details": "Détails"
   },
   "errors": {
     "loadTitle": "Impossible de charger ces données",
@@ -169,7 +170,8 @@
     "loadFailed": "Échec du chargement. Veuillez réessayer.",
     "actionFailed": "Une action n'a pas fonctionné. Veuillez réessayer.",
     "printFailed": "Impossible d'imprimer. Vérifiez l'imprimante et réessayez.",
-    "databaseBusy": "L'application est occupée. Réessayez dans un instant."
+    "databaseBusy": "L'application est occupée. Réessayez dans un instant.",
+    "deleteFailed": "Échec de la suppression. Veuillez réessayer."
   },
   "category": {
     "frame": "Monture",
@@ -396,7 +398,17 @@
     "status_arrived": "Présent",
     "status_done": "Terminé",
     "status_no_show": "Absent",
-    "status_cancelled": "Annulé"
+    "status_cancelled": "Annulé",
+    "view_month": "Mois",
+    "view_year": "Année",
+    "countBadge": "{{n}} rendez-vous",
+    "allOptometrists": "Tous les optométristes",
+    "markCancelled": "Annuler le rendez-vous",
+    "deleted": "Rendez-vous supprimé",
+    "deleteTitle": "Supprimer ce rendez-vous ?",
+    "deleteBody": "Le rendez-vous de {{name}} sera supprimé définitivement. Pour garder une trace, annulez-le plutôt.",
+    "newAt": "Nouveau rendez-vous le {{date}} à {{time}}",
+    "newOn": "Nouveau rendez-vous le {{date}}"
   },
   "statement": {
     "title": "Relevé de compte",
@@ -1139,5 +1151,22 @@
     "templateSaved": "Modèle enregistré",
     "templateLoaded": "Modèle « {{name}} » chargé",
     "clickToLoad": "Touchez pour charger"
+  },
+  "calendar": {
+    "settings": "Réglages du calendrier",
+    "status": "Statut",
+    "filledChips": "Remplir les rendez-vous en couleur",
+    "use24Hour": "Format 24 heures",
+    "dayStartsAt": "La journée commence à",
+    "agendaGroupBy": "Grouper l'agenda par",
+    "happeningNow": "En cours",
+    "nothingRightNow": "Personne n'est avec un optométriste en ce moment.",
+    "weekOnSmallScreen": "La vue semaine demande un écran plus large. Utilisez la vue jour ici.",
+    "moreCount": "{{n}} de plus…",
+    "searchAppointments": "Rechercher les rendez-vous du mois…",
+    "dayWithCount": "{{date}} — {{n}} rendez-vous",
+    "conflictTitle": "Cet horaire est déjà pris",
+    "conflictBody": "{{optometrist}} a déjà {{other}} à {{otherTime}}. Déplacer quand même {{patient}} à {{time}} ?",
+    "conflictProceed": "Déplacer quand même"
   }
 }
