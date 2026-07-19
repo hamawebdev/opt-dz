@@ -28,7 +28,7 @@ import { useAppStore, useSimpleMode } from "@/store/use-app-store";
 import { useSaveSettings, useSettings } from "@/hooks/use-settings";
 import { listStaff, createStaff } from "@/db/staff";
 import { listAudit } from "@/db/audit";
-import { setManagerPin } from "@/lib/auth";
+import { ManagerPasswordSection } from "@/components/manager-password-section";
 import {
   useBrandRows,
   useCategories,
@@ -157,6 +157,11 @@ export default function SettingsPage() {
       {/* Backups are everyday-critical (protecting the shop's data), so they
           stay with the simple sections. */}
       {settings && <DataBackupSection settings={settings} />}
+
+      {/* Outside the advanced fold for a bootstrapping reason: this control is
+          the gate for the fold itself. Behind it, a shop in simple mode could
+          never discover that the password exists. */}
+      {settings && <ManagerPasswordSection settings={settings} />}
 
       {simpleMode && (
         <Button
@@ -1085,15 +1090,12 @@ function StaffSecuritySection({ settings }: { settings: ShopSettings }) {
 
   const [newName, setNewName] = useState("");
   const [newRole, setNewRole] = useState<StaffRole>("staff");
-  const [pin, setPin] = useState("");
   const [autoBackup, setAutoBackup] = useState(
     settings.auto_backup_enabled === "1",
   );
   const [backupInterval, setBackupInterval] = useState(
     settings.auto_backup_interval_days,
   );
-  const pinSet = !!settings.manager_pin_hash;
-
   async function addStaff() {
     if (!newName.trim()) return;
     try {
@@ -1102,18 +1104,6 @@ function StaffSecuritySection({ settings }: { settings: ShopSettings }) {
       setNewRole("staff");
       qc.invalidateQueries({ queryKey: ["staff"] });
       toast.success(t("staff.added"));
-    } catch (err) {
-      notifyError(err, t("problem.saveFailed"));
-    }
-  }
-
-  async function savePin() {
-    try {
-      await setManagerPin(pin);
-      const had = pin.trim();
-      setPin("");
-      qc.invalidateQueries({ queryKey: ["settings"] });
-      toast.success(had ? t("staff.pinSet") : t("staff.pinCleared"));
     } catch (err) {
       notifyError(err, t("problem.saveFailed"));
     }
@@ -1186,29 +1176,6 @@ function StaffSecuritySection({ settings }: { settings: ShopSettings }) {
           <Button variant="outline" onClick={addStaff}>
             <Plus className="size-4" /> {t("staff.add")}
           </Button>
-        </div>
-
-        <div className="grid gap-1.5">
-          <Label htmlFor="mgr_pin">
-            {t("staff.managerPin")}{" "}
-            <Badge variant={pinSet ? "default" : "secondary"}>
-              {pinSet ? t("staff.pinOn") : t("staff.pinOff")}
-            </Badge>
-          </Label>
-          <div className="flex gap-2">
-            <Input
-              id="mgr_pin"
-              type="password"
-              inputMode="numeric"
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              placeholder={t("staff.pinPlaceholder")}
-            />
-            <Button variant="outline" onClick={savePin}>
-              {t("common.save")}
-            </Button>
-          </div>
-          <p className="text-muted-foreground text-xs">{t("staff.pinHint")}</p>
         </div>
 
         <div className="space-y-2">

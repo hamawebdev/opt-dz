@@ -352,8 +352,8 @@ If an invoice was a mistake (wrong customer, entry error), use **Void**. Voiding
 - **Restores stock.**
 - **Cancels any insurance claim** on it.
 
-Voiding **cannot be undone**. Because it is sensitive, it can require the **manager PIN**
-if one has been set.
+Voiding **cannot be undone**, so confirm the reason carefully before you do it. Every void
+is recorded in the activity log against whoever is at the till.
 
 ---
 
@@ -554,12 +554,34 @@ sales. See [Data safety](#20-data-safety-backups--restore).
   VAT, stamp duty, and which columns to show) with a live preview.
 - **Expiring-soon window (days)** — drives the Tracking and expiry alerts.
 
+### Shop password
+Setting a shop password puts **Inventory**, **Reports** and **Settings** behind a lock, and
+hides the takings and revenue chart on the dashboard. Everyday work — the till, patients,
+sales, appointments and lab jobs — is never affected.
+
+- **Set a password** — type it twice so a typo cannot lock you out. Minimum 4 characters.
+- **The recovery code** — after setting the password, the app shows a 16-digit code
+  **once**. Write it on paper and keep it somewhere safe. It is the only way back in if the
+  password is forgotten. If you lose the paper, use *Show a new recovery code* while the
+  manager area is open — the old code stops working.
+- **Opening the manager area** — you are asked for the password once each time the app
+  starts. After that, all three sections stay open until you press **Lock** in the top bar
+  or close the app.
+- **If you forget the password** — choose *I forgot the password* on the lock screen and
+  enter the recovery code. This clears the password so you can set a new one.
+- **Change password** — asks for the current password first, then the new one twice.
+- **Remove password** — asks for the current password, then unlocks the three sections for
+  everyone.
+
+*This is accountability for a shared till, not strong security. The database is an ordinary
+file on this computer. It pairs with the activity log.*
+
+> **Note:** restoring a backup also restores the password that was in force when the backup
+> was made.
+
 ### Staff & security
 - **Who is at the till** — add staff members, each with a **role** (Owner, Optometrist,
   Optician, Cashier, Staff).
-- **Manager PIN** — a PIN required for sensitive actions (such as voiding invoices and
-  large discounts). Leave it empty and save to remove it. *This is accountability for a
-  shared till, not strong security; it pairs with the activity log.*
 - **Automatic backups** — turn on and set the interval in days; backups are written to
   the backup folder when due, on app start.
 - **Recent activity (audit log)** — an append-only record of who did what and when.

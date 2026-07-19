@@ -102,27 +102,25 @@ export default function SuppliersPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
+                      <div className="flex flex-wrap justify-end gap-1">
                         <Button
                           variant="ghost"
-                          size="icon"
-                          aria-label={t("suppliers.viewLedger")}
+                          size="sm"
                           onClick={() => setLedgerFor(s)}
                         >
-                          <BookOpen className="size-4" />
+                          <BookOpen className="size-4" />{" "}
+                          {t("suppliers.viewLedger")}
                         </Button>
                         <Button
                           variant="ghost"
-                          size="icon"
-                          aria-label={t("common.edit")}
+                          size="sm"
                           onClick={() => setEditing(s)}
                         >
-                          <Pencil className="size-4" />
+                          <Pencil className="size-4" /> {t("common.edit")}
                         </Button>
                         <Button
                           variant="ghost"
-                          size="icon"
-                          aria-label={t("common.archive")}
+                          size="sm"
                           onClick={async () => {
                             await setArchived.mutateAsync({
                               id: s.id,
@@ -131,7 +129,7 @@ export default function SuppliersPage() {
                             toast.success(t("common.archived"));
                           }}
                         >
-                          <Archive className="size-4" />
+                          <Archive className="size-4" /> {t("common.archive")}
                         </Button>
                       </div>
                     </TableCell>

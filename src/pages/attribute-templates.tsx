@@ -139,19 +139,17 @@ export default function AttributeTemplatesPage() {
                     {targetSummary(d.id)}
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
+                    <div className="flex flex-wrap justify-end gap-1">
                       <Button
                         variant="ghost"
-                        size="icon"
-                        aria-label={t("common.edit")}
+                        size="sm"
                         onClick={() => setEditing(d)}
                       >
-                        <Pencil className="size-4" />
+                        <Pencil className="size-4" /> {t("common.edit")}
                       </Button>
                       <Button
                         variant="ghost"
-                        size="icon"
-                        aria-label={t("common.archive")}
+                        size="sm"
                         onClick={async () => {
                           await setArchived.mutateAsync({
                             id: d.id,
@@ -160,7 +158,7 @@ export default function AttributeTemplatesPage() {
                           toast.success(t("common.archived"));
                         }}
                       >
-                        <Archive className="size-4" />
+                        <Archive className="size-4" /> {t("common.archive")}
                       </Button>
                     </div>
                   </TableCell>

@@ -20,19 +20,21 @@ import {
   Receipt,
   AlertTriangle,
   Wallet,
+  LockKeyhole,
   ArrowRight,
   BellRing,
-  Glasses,
+  CheckCircle2,
+  Hammer,
   ShoppingCart,
   UserPlus,
   CalendarDays,
   CreditCard,
 } from "lucide-react";
 import { PaymentDialog } from "@/components/payment-dialog";
+import { StatCard } from "@/components/stat-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/error-state";
 import {
   Table,
@@ -49,12 +51,14 @@ import {
   useDueRecalls,
 } from "@/hooks/use-reports";
 import { useLowStock } from "@/hooks/use-inventory";
-import { useJobs } from "@/hooks/use-jobs";
+import { useJobs, useJobStageCounts } from "@/hooks/use-jobs";
 import { useSettings } from "@/hooks/use-settings";
 import { formatDZD, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useSimpleMode } from "@/store/use-app-store";
-import { JobStatusPill } from "@/components/status-pill";
+import { useUnlockStore } from "@/store/use-unlock-store";
+import { isPasswordSet } from "@/lib/auth";
+import { JobStatusPill, StatusPill } from "@/components/status-pill";
 
 export default function HomePage() {
   const { t } = useTranslation();
@@ -73,6 +77,12 @@ export default function HomePage() {
   const { data: recalls } = recallsQuery;
   const jobsQuery = useJobs({ activeOnly: true });
   const { data: activeJobs } = jobsQuery;
+  const { data: jobCounts } = useJobStageCounts();
+  // Takings and margins belong to the manager sections, so they follow the same
+  // lock. The dashboard itself stays open — gating the landing page would put a
+  // password prompt in front of every app launch.
+  const unlocked = useUnlockStore((s) => s.unlocked);
+  const canSeeMoney = !isPasswordSet(settings) || unlocked;
   // Take a payment straight from the pending-payments list (no trek through
   // sales → sale detail).
   const [paySale, setPaySale] = useState<{
@@ -108,7 +118,16 @@ export default function HomePage() {
     <div className="flex flex-col gap-8">
       <QuickActions />
 
-      {!simpleMode && (
+      {!simpleMode && !canSeeMoney && (
+        <Card>
+          <CardContent className="text-muted-foreground flex items-center gap-3 py-6 text-sm">
+            <LockKeyhole className="size-5 shrink-0" />
+            {t("auth.figuresLocked")}
+          </CardContent>
+        </Card>
+      )}
+
+      {!simpleMode && canSeeMoney && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             title={t("home.todaysSales")}
@@ -141,7 +160,7 @@ export default function HomePage() {
         </div>
       )}
 
-      {!simpleMode && (
+      {!simpleMode && canSeeMoney && (
         <Card className="overflow-hidden">
           <CardHeader>
             <CardTitle>{t("home.revenueLast14")}</CardTitle>
@@ -413,9 +432,27 @@ export default function HomePage() {
 
         <Card>
           <CardHeader className="flex-row items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Glasses className="text-primary size-4" />{" "}
+            <CardTitle className="flex flex-wrap items-center gap-2">
+              <Hammer className="text-primary size-4" />{" "}
               {t("home.activeLabJobs")}
+              {(jobCounts?.overdue ?? 0) > 0 && (
+                <StatusPill
+                  tone="danger"
+                  icon={AlertTriangle}
+                  label={t("jobs.lateWithCount", {
+                    count: jobCounts?.overdue ?? 0,
+                  })}
+                />
+              )}
+              {(jobCounts?.ready ?? 0) > 0 && (
+                <StatusPill
+                  tone="success"
+                  icon={CheckCircle2}
+                  label={t("jobs.readyWithCount", {
+                    count: jobCounts?.ready ?? 0,
+                  })}
+                />
+              )}
             </CardTitle>
             <SectionLink to="/jobs">{t("nav.jobs")}</SectionLink>
           </CardHeader>
@@ -444,7 +481,12 @@ export default function HomePage() {
                   {activeJobs.slice(0, 6).map((j) => (
                     <TableRow key={j.id}>
                       <TableCell className="font-medium">
-                        {j.patient_name}
+                        <Link
+                          to={`/jobs/${j.id}`}
+                          className="hover:underline"
+                        >
+                          {j.patient_name ?? t("sales.walkIn")}
+                        </Link>
                       </TableCell>
                       <TableCell>
                         <JobStatusPill status={j.status} />
@@ -477,9 +519,8 @@ export default function HomePage() {
 /** Big, image-led task tiles — the first thing a daily user should see. */
 function QuickActions() {
   const { t } = useTranslation();
-  // Simple mode has exactly ONE way to sell — the POS screen — so the primary
-  // tile leads there instead of the advanced multi-card sale form.
-  const simpleMode = useSimpleMode();
+  // Glasses waiting for pickup, badged on the lab tile even in simple mode.
+  const { data: jobCounts } = useJobStageCounts();
   return (
     <div>
       <h2 className="mb-3 text-lg font-semibold tracking-tight">
@@ -487,7 +528,7 @@ function QuickActions() {
       </h2>
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <QuickAction
-          to={simpleMode ? "/pos" : "/sales/new"}
+          to="/pos"
           icon={ShoppingCart}
           label={t("quick.newSale")}
           primary
@@ -502,7 +543,12 @@ function QuickActions() {
           icon={CalendarDays}
           label={t("quick.appointments")}
         />
-        <QuickAction to="/jobs" icon={Glasses} label={t("quick.jobsReady")} />
+        <QuickAction
+          to="/jobs?stage=ready"
+          icon={Hammer}
+          label={t("quick.labOrders")}
+          badge={jobCounts?.ready}
+        />
       </div>
     </div>
   );
@@ -513,11 +559,13 @@ function QuickAction({
   icon: Icon,
   label,
   primary,
+  badge,
 }: {
   to: string;
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   primary?: boolean;
+  badge?: number;
 }) {
   return (
     <Link
@@ -531,66 +579,19 @@ function QuickAction({
     >
       <span
         className={cn(
-          "flex size-12 items-center justify-center rounded-xl",
+          "relative flex size-12 items-center justify-center rounded-xl",
           primary ? "bg-white/15" : "bg-primary/10 text-primary",
         )}
       >
         <Icon className="size-6" />
+        {!!badge && (
+          <span className="bg-success text-success-foreground absolute -top-1.5 -end-1.5 flex size-5 items-center justify-center rounded-full text-xs font-bold tabular-nums">
+            {badge}
+          </span>
+        )}
       </span>
       <span className="text-base leading-tight font-semibold">{label}</span>
     </Link>
-  );
-}
-
-function StatCard({
-  title,
-  value,
-  sub,
-  icon,
-  accent,
-  loading,
-}: {
-  title: string;
-  value: string;
-  sub?: string;
-  icon: React.ReactNode;
-  accent?: "warning";
-  loading?: boolean;
-}) {
-  return (
-    <Card className="group hover:border-border/80 relative overflow-hidden py-0 hover:shadow-md">
-      {/* faint top sheen for a machined surface feel */}
-      <div className="ring-inset-highlight pointer-events-none absolute inset-0 rounded-xl" />
-      <CardContent className="flex items-center justify-between gap-4 p-5">
-        <div className="min-w-0 space-y-2">
-          <p className="text-muted-foreground truncate text-sm font-medium">
-            {title}
-          </p>
-          {loading ? (
-            <Skeleton className="h-8 w-24" />
-          ) : (
-            <p className="text-[1.75rem] leading-none font-semibold tracking-tight tabular-nums">
-              {value}
-            </p>
-          )}
-          {!loading && sub && (
-            <p className="text-muted-foreground truncate text-xs tabular-nums">
-              {sub}
-            </p>
-          )}
-        </div>
-        <div
-          className={
-            "flex size-11 shrink-0 items-center justify-center rounded-xl ring-1 transition-transform duration-300 ease-[var(--ease-out-soft)] group-hover:scale-105 " +
-            (accent === "warning"
-              ? "bg-warning/10 text-warning ring-warning/20"
-              : "bg-primary/10 text-primary ring-primary/15")
-          }
-        >
-          {icon}
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 

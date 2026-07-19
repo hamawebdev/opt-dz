@@ -189,11 +189,11 @@ function PayersCard() {
                   <TableCell>
                     <Button
                       variant="ghost"
-                      size="icon"
-                      aria-label={t("common.remove")}
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
                       onClick={() => remove(p.id)}
                     >
-                      <Trash2 className="text-destructive size-4" />
+                      <Trash2 className="size-4" /> {t("common.remove")}
                     </Button>
                   </TableCell>
                 </TableRow>

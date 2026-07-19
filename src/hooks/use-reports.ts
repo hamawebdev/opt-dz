@@ -1,11 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   getBestSellers,
+  getCollectedByDay,
   getDashboardStats,
   getOutstandingBalances,
   getPendingPayments,
+  getReportOverview,
   getRevenueByDay,
-  getRevenueInRange,
   getTaxInRange,
   getDueRecalls,
 } from "@/db/reports";
@@ -38,10 +39,17 @@ export function useOutstandingBalances() {
   });
 }
 
-export function useRevenueInRange(from: string, to: string) {
+export function useReportOverview(from: string, to: string) {
   return useQuery({
-    queryKey: ["reports", "revenue-range", from, to],
-    queryFn: () => getRevenueInRange(from, to),
+    queryKey: ["reports", "overview", from, to],
+    queryFn: () => getReportOverview(from, to),
+  });
+}
+
+export function useCollectedByDay(from: string, to: string) {
+  return useQuery({
+    queryKey: ["reports", "collected-by-day", from, to],
+    queryFn: () => getCollectedByDay(from, to),
   });
 }
 

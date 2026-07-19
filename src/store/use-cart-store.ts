@@ -18,6 +18,10 @@ export interface CartLine {
   item_discount: number; // centimes off this line
   image: string | null;
   stock_available: number | null; // null = service / unknown
+  /** Return mode only: the original sale_items row this line refunds. */
+  sale_item_id?: number;
+  /** Return mode only: quantity still returnable (sold − already returned). */
+  max_qty?: number;
 }
 
 // A serializable snapshot of the whole cart, persisted as a held sale's payload.
@@ -39,6 +43,13 @@ interface CartState extends CartSnapshot {
   /** The held-sale row this cart was resumed from (re-holding updates it). */
   activeHeldId: number | null;
 
+  // Return mode: the cart holds the returnable lines of ONE existing sale
+  // (never in CartSnapshot — a return can not be parked as a held sale).
+  returnMode: boolean;
+  returnSaleId: number | null;
+  /** Invoice label for the banner, e.g. "F-000042" or "#42". */
+  returnSaleLabel: string | null;
+
   addLine: (line: Omit<CartLine, "key">) => void;
   setQuantity: (key: string, quantity: number) => void;
   changeQuantity: (key: string, delta: number) => void;
@@ -55,12 +66,23 @@ interface CartState extends CartSnapshot {
   setNotes: (notes: string) => void;
   setActiveHeldId: (id: number | null) => void;
   loadSnapshot: (snapshot: CartSnapshot, heldId: number | null) => void;
+  startReturn: (
+    saleId: number,
+    label: string,
+    customer: { id: number; name: string | null } | null,
+    lines: Omit<CartLine, "key">[],
+  ) => void;
 }
 
 let counter = 0;
 const newKey = () => `cart-${Date.now().toString(36)}-${counter++}`;
 
-const EMPTY: CartSnapshot & { activeHeldId: number | null } = {
+const EMPTY: CartSnapshot & {
+  activeHeldId: number | null;
+  returnMode: boolean;
+  returnSaleId: number | null;
+  returnSaleLabel: string | null;
+} = {
   lines: [],
   customerId: null,
   customerName: null,
@@ -72,6 +94,9 @@ const EMPTY: CartSnapshot & { activeHeldId: number | null } = {
   paymentMethod: "cash",
   notes: "",
   activeHeldId: null,
+  returnMode: false,
+  returnSaleId: null,
+  returnSaleLabel: null,
 };
 
 /** Same product/variant collapses onto one line (variant id, else product id). */
@@ -79,6 +104,11 @@ function sameItem(a: Pick<CartLine, "product_id" | "variant_id">, b: typeof a) {
   if (a.variant_id != null || b.variant_id != null)
     return a.variant_id === b.variant_id;
   return a.product_id === b.product_id;
+}
+
+/** Quantities are ≥ 1 and, in return mode, never above what is returnable. */
+function clampQty(line: CartLine, quantity: number): number {
+  return Math.min(line.max_qty ?? Infinity, Math.max(1, quantity));
 }
 
 export const useCartStore = create<CartState>()(
@@ -106,7 +136,7 @@ export const useCartStore = create<CartState>()(
       setQuantity: (key, quantity) =>
         set((s) => ({
           lines: s.lines.map((l) =>
-            l.key === key ? { ...l, quantity: Math.max(1, quantity) } : l,
+            l.key === key ? { ...l, quantity: clampQty(l, quantity) } : l,
           ),
         })),
 
@@ -114,7 +144,7 @@ export const useCartStore = create<CartState>()(
         set((s) => ({
           lines: s.lines.map((l) =>
             l.key === key
-              ? { ...l, quantity: Math.max(1, l.quantity + delta) }
+              ? { ...l, quantity: clampQty(l, l.quantity + delta) }
               : l,
           ),
         })),
@@ -155,6 +185,17 @@ export const useCartStore = create<CartState>()(
         // Spread EMPTY first: held-sale payloads saved before a field existed
         // (e.g. prescriptionId) must not leak the previous cart's value.
         set({ ...EMPTY, ...snapshot, activeHeldId: heldId }),
+
+      startReturn: (saleId, label, customer, lines) =>
+        set({
+          ...EMPTY,
+          returnMode: true,
+          returnSaleId: saleId,
+          returnSaleLabel: label,
+          customerId: customer?.id ?? null,
+          customerName: customer?.name ?? null,
+          lines: lines.map((l) => ({ ...l, key: newKey() })),
+        }),
     }),
     {
       // Transient crash-resilience for the *current* cart only; canonical parked

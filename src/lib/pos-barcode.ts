@@ -1,10 +1,9 @@
 import type { Product } from "@/types";
 import type { SellableVariant } from "@/db/variants";
 
-// Resolves a scanned/typed code to a sellable item. Mirrors the original inline
-// logic in sale-form.tsx (addByBarcode): a variant barcode wins, then a product
-// barcode or reference. Returns null when nothing matches (caller falls back to
-// manual search). Shared by the POS scanner listener and the sale form.
+// Resolves a scanned/typed code to a sellable item: a variant barcode wins,
+// then a product barcode or reference. Returns null when nothing matches
+// (caller falls back to manual search). Used by the POS scanner listener.
 export type BarcodeMatch =
   | { kind: "variant"; variant: SellableVariant }
   | { kind: "product"; product: Product };

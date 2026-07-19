@@ -7,26 +7,23 @@ import {
   Check,
   RotateCcw,
   Bell,
+  PackageCheck,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useNotificationFeed } from "@/hooks/use-notifications";
 import { useNotificationsStore } from "@/store/use-notifications-store";
-import type { AppNotification, NotificationKind } from "@/db/notifications";
+import { notificationLink, type NotificationKind } from "@/db/notifications";
 
 const ICON: Record<NotificationKind, typeof Bell> = {
   out_of_stock: PackageX,
   low_stock: AlertTriangle,
   expired: CalendarClock,
   expiring_soon: CalendarClock,
+  job_overdue: CalendarClock,
+  job_ready: PackageCheck,
 };
-
-function notifLink(n: AppNotification): string {
-  return n.kind === "expired" || n.kind === "expiring_soon"
-    ? "/tracking"
-    : `/inventory/${n.productId}/edit`;
-}
 
 export default function NotificationsPage() {
   const { t } = useTranslation();
@@ -73,11 +70,11 @@ export default function NotificationsPage() {
                   }
                 />
                 <Link
-                  to={notifLink(n)}
+                  to={notificationLink(n)}
                   className="flex-1 text-sm hover:underline"
                 >
                   {t(`notifications.${n.kind}`, {
-                    name: n.productName,
+                    name: n.name || t("sales.walkIn"),
                     meta: n.meta,
                   })}
                 </Link>
@@ -86,11 +83,10 @@ export default function NotificationsPage() {
                 ) : (
                   <Button
                     variant="ghost"
-                    size="icon"
-                    aria-label={t("notifications.markRead")}
+                    size="sm"
                     onClick={() => dismiss(n.id)}
                   >
-                    <Check className="size-4" />
+                    <Check className="size-4" /> {t("notifications.markRead")}
                   </Button>
                 )}
               </div>

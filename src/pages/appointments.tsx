@@ -117,7 +117,12 @@ export default function AppointmentsPage() {
         </div>
         {view !== "checkin" && (
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={() => shift(-1)}>
+            <Button
+              variant="outline"
+              size="icon"
+              aria-label={t("common.previous")}
+              onClick={() => shift(-1)}
+            >
               <ChevronLeft className="size-4 rtl:rotate-180" />
             </Button>
             <Button
@@ -127,7 +132,12 @@ export default function AppointmentsPage() {
             >
               {t("appointments.today")}
             </Button>
-            <Button variant="outline" size="icon" onClick={() => shift(1)}>
+            <Button
+              variant="outline"
+              size="icon"
+              aria-label={t("common.next")}
+              onClick={() => shift(1)}
+            >
               <ChevronRight className="size-4 rtl:rotate-180" />
             </Button>
             <span className="text-muted-foreground text-sm">
@@ -164,7 +174,7 @@ export default function AppointmentsPage() {
           onExam={(a) => setExamFor(a)}
           onSale={(a) =>
             navigate(
-              `/sales/new?patient=${a.patient_id}${a.prescription_id ? `&prescription=${a.prescription_id}` : ""}`,
+              `/pos?patient=${a.patient_id}${a.prescription_id ? `&prescription=${a.prescription_id}` : ""}`,
             )
           }
         />

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createProduct,
   archiveProduct,
+  getInventorySummary,
   getProduct,
   listBrands,
   listLowStock,
@@ -19,8 +20,18 @@ export const productKeys = {
   detail: (id: number) => ["products", "detail", id] as const,
   brands: ["products", "brands"] as const,
   lowStock: ["products", "low-stock"] as const,
+  summary: ["products", "summary"] as const,
   movements: (id: number) => ["stock-movements", id] as const,
 };
+
+/** Whole-inventory KPI totals. Keyed under "products" so every existing
+ * invalidation (product CRUD, deliveries, adjustments, sales) refreshes it. */
+export function useInventorySummary() {
+  return useQuery({
+    queryKey: productKeys.summary,
+    queryFn: getInventorySummary,
+  });
+}
 
 export function useProducts(filters: ProductFilters = {}) {
   return useQuery({

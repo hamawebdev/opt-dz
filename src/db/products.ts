@@ -158,6 +158,58 @@ export async function listLowStock(): Promise<Product[]> {
   );
 }
 
+/** Whole-inventory totals for the Stock page KPI cards (money in centimes). */
+export interface InventorySummary {
+  /** Active stocked products (services + archived excluded). */
+  productCount: number;
+  /** Units on hand across those products. */
+  totalUnits: number;
+  /** SUM(on-hand × purchase price) — money tied up in stock. */
+  totalCost: number;
+  /** SUM(on-hand × selling price) — value if everything sells at listed price. */
+  totalValue: number;
+}
+
+/**
+ * KPI totals over the whole active inventory. Variant products count their
+ * variants' on-hand — the parent row's `quantity` is NOT a variant sum (see
+ * `effectiveStock` in catalog.ts) — with per-variant price overrides falling
+ * back to the parent's prices. Negative on-hand (oversell) is clamped to 0 so
+ * a data glitch can't subtract from the money totals.
+ */
+export async function getInventorySummary(): Promise<InventorySummary> {
+  const db = await getDb();
+  const rows = await db.select<InventorySummary[]>(
+    `WITH agg AS (
+       SELECT
+         (SELECT COUNT(*) FROM product_variants v
+           WHERE v.product_id = p.id AND v.archived = 0) AS vcount,
+         (SELECT COALESCE(SUM(MAX(v.quantity, 0)), 0) FROM product_variants v
+           WHERE v.product_id = p.id AND v.archived = 0) AS vunits,
+         (SELECT COALESCE(SUM(MAX(v.quantity, 0) * COALESCE(v.purchase_price, p.purchase_price)), 0)
+           FROM product_variants v
+           WHERE v.product_id = p.id AND v.archived = 0) AS vcost,
+         (SELECT COALESCE(SUM(MAX(v.quantity, 0) * COALESCE(v.selling_price, p.selling_price)), 0)
+           FROM product_variants v
+           WHERE v.product_id = p.id AND v.archived = 0) AS vvalue,
+         MAX(p.quantity, 0) AS punits,
+         p.purchase_price AS pcost,
+         p.selling_price AS pprice
+       FROM products p
+       WHERE p.archived = 0 AND p.item_type = 'product'
+     )
+     SELECT
+       COUNT(*) AS productCount,
+       COALESCE(SUM(CASE WHEN vcount > 0 THEN vunits ELSE punits END), 0) AS totalUnits,
+       COALESCE(SUM(CASE WHEN vcount > 0 THEN vcost ELSE punits * pcost END), 0) AS totalCost,
+       COALESCE(SUM(CASE WHEN vcount > 0 THEN vvalue ELSE punits * pprice END), 0) AS totalValue
+     FROM agg`,
+  );
+  return (
+    rows[0] ?? { productCount: 0, totalUnits: 0, totalCost: 0, totalValue: 0 }
+  );
+}
+
 export async function createProduct(input: ProductInput): Promise<number> {
   const db = await getDb();
   const isService = input.item_type === "service";

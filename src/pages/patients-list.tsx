@@ -87,11 +87,9 @@ export default function PatientsListPage() {
           </div>
           <Button
             variant={showAdvanced ? "secondary" : "outline"}
-            size="icon"
-            aria-label={t("patients.advanced")}
             onClick={() => setShowAdvanced((v) => !v)}
           >
-            <SlidersHorizontal className="size-4" />
+            <SlidersHorizontal className="size-4" /> {t("patients.advanced")}
           </Button>
         </div>
         <div className="flex gap-2">
@@ -230,30 +228,24 @@ export default function PatientsListPage() {
                     className="text-right"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="icon" asChild>
-                        <Link
-                          to={`/patients/${p.id}`}
-                          aria-label={t("common.view")}
-                        >
-                          <Eye className="size-4" />
+                    <div className="flex flex-wrap justify-end gap-1">
+                      <Button variant="ghost" size="sm" asChild>
+                        <Link to={`/patients/${p.id}`}>
+                          <Eye className="size-4" /> {t("common.view")}
                         </Link>
                       </Button>
-                      <Button variant="ghost" size="icon" asChild>
-                        <Link
-                          to={`/patients/${p.id}/edit`}
-                          aria-label={t("common.edit")}
-                        >
-                          <Pencil className="size-4" />
+                      <Button variant="ghost" size="sm" asChild>
+                        <Link to={`/patients/${p.id}/edit`}>
+                          <Pencil className="size-4" /> {t("common.edit")}
                         </Link>
                       </Button>
                       <Button
                         variant="ghost"
-                        size="icon"
-                        aria-label={t("common.delete")}
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
                         onClick={() => setToDelete(p.id)}
                       >
-                        <Trash2 className="text-destructive size-4" />
+                        <Trash2 className="size-4" /> {t("common.delete")}
                       </Button>
                     </div>
                   </TableCell>

@@ -67,7 +67,7 @@ const manageItems: NavItem[] = [
     icon: ShieldCheck,
     advanced: true,
   },
-  { to: "/reports", labelKey: "nav.reports", icon: BarChart3, advanced: true },
+  { to: "/reports", labelKey: "nav.reports", icon: BarChart3 },
   { to: "/settings", labelKey: "nav.settings", icon: Settings },
 ];
 

@@ -141,11 +141,11 @@ export function PosCatalog({
           onValueChange={(v) => v && setView(v as View)}
           variant="outline"
         >
-          <ToggleGroupItem value="grid" aria-label={t("pos.gridView")}>
-            <LayoutGrid className="size-4" />
+          <ToggleGroupItem value="grid" className="gap-1.5 px-3">
+            <LayoutGrid className="size-4" /> {t("pos.gridView")}
           </ToggleGroupItem>
-          <ToggleGroupItem value="list" aria-label={t("pos.listView")}>
-            <List className="size-4" />
+          <ToggleGroupItem value="list" className="gap-1.5 px-3">
+            <List className="size-4" /> {t("pos.listView")}
           </ToggleGroupItem>
         </ToggleGroup>
       </div>

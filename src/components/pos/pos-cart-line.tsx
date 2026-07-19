@@ -21,6 +21,7 @@ export function PosCartLine({
   const setUnitPrice = useCartStore((s) => s.setUnitPrice);
   const setLineDiscount = useCartStore((s) => s.setLineDiscount);
   const removeLine = useCartStore((s) => s.removeLine);
+  const returnMode = useCartStore((s) => s.returnMode);
 
   const [price, setPrice] = useState(String(fromCentimes(line.unit_price)));
   const [discount, setDiscount] = useState(
@@ -32,7 +33,10 @@ export function PosCartLine({
     line.unit_price * line.quantity - line.item_discount,
   );
   const overSell =
-    line.stock_available != null && line.quantity > line.stock_available;
+    !returnMode &&
+    line.stock_available != null &&
+    line.quantity > line.stock_available;
+  const atMax = line.max_qty != null && line.quantity >= line.max_qty;
 
   return (
     <div className="flex gap-2.5 border-b py-2.5 last:border-b-0">
@@ -98,44 +102,56 @@ export function PosCartLine({
               size="icon"
               className="size-9"
               aria-label="+"
+              disabled={atMax}
               onClick={() => changeQuantity(line.key, 1)}
             >
               <Plus className="size-4" />
             </Button>
+            {line.max_qty != null && (
+              <span className="text-muted-foreground text-xs">
+                / {line.max_qty}
+              </span>
+            )}
           </div>
 
-          {/* Unit price (override) */}
-          <label className="flex items-center gap-1">
-            <span className="text-muted-foreground text-xs">
-              {t("common.unitPrice")}
-            </span>
-            <Input
-              value={price}
-              onChange={(e) => {
-                setPrice(e.target.value);
-                setUnitPrice(line.key, toCentimes(e.target.value));
-              }}
-              inputMode="decimal"
-              className="h-9 w-16 min-w-[3rem] text-end"
-            />
-          </label>
+          {/* Price/discount edits only apply when selling — a return refunds
+              the price actually paid on the original sale. */}
+          {!returnMode && (
+            <>
+              {/* Unit price (override) */}
+              <label className="flex items-center gap-1">
+                <span className="text-muted-foreground text-xs">
+                  {t("common.unitPrice")}
+                </span>
+                <Input
+                  value={price}
+                  onChange={(e) => {
+                    setPrice(e.target.value);
+                    setUnitPrice(line.key, toCentimes(e.target.value));
+                  }}
+                  inputMode="decimal"
+                  className="h-9 w-16 min-w-[3rem] text-end"
+                />
+              </label>
 
-          {/* Per-line discount */}
-          <label className="flex items-center gap-1">
-            <span className="text-muted-foreground text-xs">
-              {t("pos.discount")}
-            </span>
-            <Input
-              value={discount}
-              onChange={(e) => {
-                setDiscount(e.target.value);
-                setLineDiscount(line.key, toCentimes(e.target.value));
-              }}
-              inputMode="decimal"
-              placeholder="0"
-              className="h-9 w-14 min-w-[2.5rem] text-end"
-            />
-          </label>
+              {/* Per-line discount */}
+              <label className="flex items-center gap-1">
+                <span className="text-muted-foreground text-xs">
+                  {t("pos.discount")}
+                </span>
+                <Input
+                  value={discount}
+                  onChange={(e) => {
+                    setDiscount(e.target.value);
+                    setLineDiscount(line.key, toCentimes(e.target.value));
+                  }}
+                  inputMode="decimal"
+                  placeholder="0"
+                  className="h-9 w-14 min-w-[2.5rem] text-end"
+                />
+              </label>
+            </>
+          )}
 
           <span className={cn("ms-auto font-semibold tabular-nums")}>
             {formatDZD(subtotal, symbol)}

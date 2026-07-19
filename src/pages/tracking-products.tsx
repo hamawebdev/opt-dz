@@ -148,12 +148,9 @@ function ExpiryRow({
         <Badge variant={badgeVariant[status]}>{t(`tracking.${status}`)}</Badge>
       </TableCell>
       <TableCell>
-        <Button variant="ghost" size="icon" asChild>
-          <Link
-            to={`/inventory/${product.id}/edit`}
-            aria-label={t("common.edit")}
-          >
-            <Pencil className="size-4" />
+        <Button variant="ghost" size="sm" asChild>
+          <Link to={`/inventory/${product.id}/edit`}>
+            <Pencil className="size-4" /> {t("common.edit")}
           </Link>
         </Button>
       </TableCell>

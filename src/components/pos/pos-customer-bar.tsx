@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FileText, UserRound, X } from "lucide-react";
+import { FileText, UserPlus, UserRound, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   NativeSelect,
@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/native-select";
 import { SearchSelect, type SearchOption } from "@/components/search-select";
 import { PatientAvatar } from "@/components/patient-avatar";
+import { PosNewClientDialog } from "@/components/pos/pos-new-client-dialog";
 import { usePatients, usePrescriptions } from "@/hooks/use-patients";
 import { useCartStore } from "@/store/use-cart-store";
 import { formatDate } from "@/lib/format";
@@ -29,6 +30,7 @@ export function PosCustomerBar() {
   const prescriptionId = useCartStore((s) => s.prescriptionId);
   const setPrescriptionId = useCartStore((s) => s.setPrescriptionId);
   const { data: prescriptions } = usePrescriptions(customerId ?? undefined);
+  const [newClientOpen, setNewClientOpen] = useState(false);
 
   const options: SearchOption[] = useMemo(
     () =>
@@ -66,16 +68,26 @@ export function PosCustomerBar() {
             className="h-10"
           />
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="size-10 shrink-0"
+          aria-label={t("pos.addCustomer")}
+          title={t("pos.addCustomer")}
+          onClick={() => setNewClientOpen(true)}
+        >
+          <UserPlus className="size-4" />
+        </Button>
         {customerId != null && (
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            className="size-9 shrink-0"
-            aria-label={t("pos.removeCustomer")}
+            size="sm"
+            className="shrink-0"
             onClick={() => setCustomer(null, null)}
           >
-            <X className="size-4" />
+            <X className="size-4" /> {t("common.remove")}
           </Button>
         )}
       </div>
@@ -107,6 +119,11 @@ export function PosCustomerBar() {
           </div>
         </div>
       )}
+
+      <PosNewClientDialog
+        open={newClientOpen}
+        onOpenChange={setNewClientOpen}
+      />
     </div>
   );
 }

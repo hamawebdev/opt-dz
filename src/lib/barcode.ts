@@ -1,7 +1,6 @@
 import bwipjs from "bwip-js/browser";
-import type { LabelConfig } from "@/types";
 
-export type BarcodeFormat = LabelConfig["format"];
+export type BarcodeFormat = "ean13" | "code128" | "qrcode";
 
 const BCID: Record<BarcodeFormat, string> = {
   ean13: "ean13",
@@ -88,4 +87,36 @@ export function barcodeDataUrl(opts: RenderOptions): string | null {
   const canvas = document.createElement("canvas");
   if (!renderBarcode(canvas, opts)) return null;
   return canvas.toDataURL("image/png");
+}
+
+/**
+ * SVG markup of a barcode, stretched to fill its container. Linear codes get
+ * `preserveAspectRatio="none"` — bar ratios survive on the x-axis, which is all
+ * a 1D scanner reads — while QR stays square. Returns "" when the value can't
+ * be encoded, so callers can show a friendly placeholder.
+ */
+export function barcodeSvg(opts: RenderOptions): string {
+  let svg: string;
+  try {
+    svg = bwipjs.toSVG({
+      bcid: BCID[opts.format],
+      text: opts.value,
+      scale: opts.scale ?? 3,
+      height: opts.format === "qrcode" ? undefined : (opts.height ?? 12),
+      includetext:
+        opts.format === "qrcode" ? false : (opts.includeText ?? true),
+      textxalign: "center",
+    });
+  } catch {
+    return "";
+  }
+  // bwip-js emits `<svg viewBox="0 0 W H" xmlns="…">` with no width/height.
+  const fit =
+    opts.format === "qrcode"
+      ? 'preserveAspectRatio="xMidYMid meet"'
+      : 'preserveAspectRatio="none"';
+  return svg.replace(
+    "<svg ",
+    `<svg width="100%" height="100%" ${fit} style="display:block" `,
+  );
 }

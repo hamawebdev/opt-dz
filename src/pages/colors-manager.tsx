@@ -125,43 +125,41 @@ export default function ColorsManagerPage() {
                     {usage?.[c.id] ?? 0}
                   </TableCell>
                   <TableCell>
-                    <div className="flex justify-end gap-1">
+                    <div className="flex flex-wrap justify-end gap-1">
                       <Button
                         type="button"
                         variant="ghost"
-                        size="icon"
-                        aria-label={t("colors.merge")}
+                        size="sm"
                         onClick={() => setMerging(c)}
                         disabled={!!c.archived}
                       >
-                        <Merge className="size-4" />
+                        <Merge className="size-4" /> {t("colors.merge")}
                       </Button>
                       <Button
                         type="button"
                         variant="ghost"
-                        size="icon"
-                        aria-label={t("common.edit")}
+                        size="sm"
                         onClick={() => setEditing(c)}
                       >
-                        <Pencil className="size-4" />
+                        <Pencil className="size-4" /> {t("common.edit")}
                       </Button>
                       <Button
                         type="button"
                         variant="ghost"
-                        size="icon"
-                        aria-label={
-                          c.archived
-                            ? t("common.unarchive")
-                            : t("common.archive")
-                        }
+                        size="sm"
                         onClick={() =>
                           archive.mutate({ id: c.id, archived: !c.archived })
                         }
                       >
                         {c.archived ? (
-                          <ArchiveRestore className="size-4" />
+                          <>
+                            <ArchiveRestore className="size-4" />{" "}
+                            {t("common.unarchive")}
+                          </>
                         ) : (
-                          <Archive className="size-4" />
+                          <>
+                            <Archive className="size-4" /> {t("common.archive")}
+                          </>
                         )}
                       </Button>
                     </div>

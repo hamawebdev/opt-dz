@@ -1644,14 +1644,23 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
     const ageDays = sale
       ? Math.round((NOW.getTime() - sale.date.getTime()) / DAY)
       : randInt(1, 60);
-    // Older orders are further along the pipeline.
-    let status: JobStatus;
+    // Older orders are further along the pipeline. Walk each job through its
+    // intermediate stages so the per-order timeline looks real.
+    let path: JobStatus[];
     if (ageDays > 25)
-      status = pick<JobStatus>(["collected", "collected", "ready"]);
+      path = pick<JobStatus[]>([
+        ["in_progress", "ready", "delivered"],
+        ["in_progress", "ready", "delivered"],
+        ["in_progress", "ready"],
+      ]);
     else if (ageDays > 12)
-      status = pick<JobStatus>(["ready", "edging", "collected"]);
-    else if (ageDays > 5) status = pick<JobStatus>(["edging", "at_lab"]);
-    else status = pick<JobStatus>(["ordered", "at_lab"]);
+      path = pick<JobStatus[]>([
+        ["in_progress", "ready"],
+        ["in_progress", "ready", "delivered"],
+      ]);
+    else if (ageDays > 5)
+      path = pick<JobStatus[]>([["in_progress"], ["in_progress", "ready"]]);
+    else path = pick<JobStatus[]>([[], ["in_progress"]]);
 
     const orderedAt = sale ? sale.date : daysAgo(ageDays);
     const expected = new Date(orderedAt.getTime() + randInt(5, 12) * DAY);
@@ -1660,7 +1669,7 @@ export async function seedDatabase(opts: SeedOptions = {}): Promise<void> {
       expected_ready: ymd(expected),
       notes: chance(0.2) ? "Verres en rupture côté labo." : null,
     });
-    if (status !== "ordered") await updateJobStatus(job.id, status);
+    for (const status of path) await updateJobStatus(job.id, status);
   }
   console.info(`[seed] ${jobRows.length} lab jobs progressed`);
 

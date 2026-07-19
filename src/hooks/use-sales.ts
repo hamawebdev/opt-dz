@@ -4,6 +4,8 @@ import {
   voidSale,
   getSale,
   getSaleItems,
+  getSalesListStats,
+  listSaleItemSummaries,
   listSales,
   type CreateSaleInput,
   type SaleListFilters,
@@ -14,6 +16,12 @@ import { logActivity } from "@/db/activity";
 export const saleKeys = {
   all: ["sales"] as const,
   list: (filters: SaleListFilters) => ["sales", "list", filters] as const,
+  // Both start with "sales" so every existing invalidation of `saleKeys.all`
+  // (payments, returns, voids, new sales) refreshes them too.
+  itemSummaries: (filters: SaleListFilters) =>
+    ["sales", "item-summaries", filters] as const,
+  listStats: (filters: SaleListFilters) =>
+    ["sales", "list-stats", filters] as const,
   detail: (id: number) => ["sales", "detail", id] as const,
   items: (id: number) => ["sale-items", id] as const,
   payments: (id: number) => ["payments", id] as const,
@@ -23,6 +31,26 @@ export function useSales(filters: SaleListFilters = {}) {
   return useQuery({
     queryKey: saleKeys.list(filters),
     queryFn: () => listSales(filters),
+  });
+}
+
+/** Items of every listed sale, for the list's "Items" column. */
+export function useSaleItemSummaries(filters: SaleListFilters = {}) {
+  return useQuery({
+    queryKey: saleKeys.itemSummaries(filters),
+    queryFn: () => listSaleItemSummaries(filters),
+  });
+}
+
+/** KPI header aggregates for the sales list page. */
+export function useSalesListStats(
+  filters: SaleListFilters = {},
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: saleKeys.listStats(filters),
+    queryFn: () => getSalesListStats(filters),
+    enabled,
   });
 }
 
@@ -65,6 +93,7 @@ export function useCreateSale() {
       qc.invalidateQueries({ queryKey: saleKeys.all });
       qc.invalidateQueries({ queryKey: ["products"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
       qc.invalidateQueries({ queryKey: ["held-sales"] });
     },
   });
@@ -82,6 +111,7 @@ export function useVoidSale() {
       qc.invalidateQueries({ queryKey: saleKeys.all });
       qc.invalidateQueries({ queryKey: ["products"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
     },
   });
 }
@@ -99,6 +129,7 @@ export function useRecordPayment(saleId: number) {
       qc.invalidateQueries({ queryKey: saleKeys.payments(saleId) });
       qc.invalidateQueries({ queryKey: saleKeys.all });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
       // Payments can now be taken from the patient page; its outstanding
       // summary must refresh too.
       qc.invalidateQueries({ queryKey: ["patients"] });
@@ -116,6 +147,7 @@ export function useDeletePayment(saleId: number) {
       qc.invalidateQueries({ queryKey: saleKeys.payments(saleId) });
       qc.invalidateQueries({ queryKey: saleKeys.all });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
     },
   });
 }

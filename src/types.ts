@@ -19,7 +19,7 @@ export type ClaimStatus =
   | "partial"
   | "paid"
   | "rejected";
-export type JobStatus = "ordered" | "at_lab" | "edging" | "ready" | "collected";
+export type JobStatus = "ordered" | "in_progress" | "ready" | "delivered";
 
 export interface Patient {
   id: number;
@@ -326,7 +326,8 @@ export interface ClaimRow extends Claim {
 export interface Job {
   id: number;
   sale_id: number | null;
-  patient_id: number;
+  /** NULL for walk-in lens orders (v19). */
+  patient_id: number | null;
   prescription_id: number | null;
   lab: string | null;
   status: JobStatus;
@@ -337,11 +338,12 @@ export interface Job {
   updated_at: string;
 }
 
-// A job joined with patient name + sale invoice number for list views.
+// A job joined with patient name/phone + sale invoice number for list views.
 export interface JobRow extends Job {
-  patient_name: string;
+  patient_name: string | null;
+  patient_phone: string | null;
   invoice_number: string | null;
-  /** 1 when not collected and the expected-ready date has passed. */
+  /** 1 when not delivered and the expected-ready date has passed. */
   overdue?: number;
 }
 
@@ -514,12 +516,13 @@ export interface ShopSettings {
   client_code_next: string;
   // JSON blob (see ReceiptConfig) controlling which blocks print on receipts/invoices.
   receipt_config: string;
-  // JSON blob (see LabelConfig) holding the last-used barcode-label design.
-  label_config: string;
-  // Accountability: SHA-256 hash of the manager PIN (empty = no gate) and the discount
-  // threshold (basis points) above which a discount needs manager approval.
-  manager_pin_hash: string;
-  discount_pin_threshold: string;
+  // JSON array of named label-designer templates (see LabelTemplate).
+  label_templates: string;
+  // The one shop-wide password gating Inventory, Reports and Settings, and the
+  // one-time recovery code that clears it. Both are PBKDF2 records produced by
+  // src/lib/auth.ts (empty = not set); see that file for the format.
+  manager_password_hash: string;
+  manager_recovery_hash: string;
   // Scheduled automatic backups.
   auto_backup_enabled: string; // "0" | "1"
   auto_backup_interval_days: string;
@@ -542,16 +545,4 @@ export interface ReceiptConfig {
   /** Attribute keys to print under each product line. */
   item_attribute_keys: string[];
   paper: "a4" | "thermal";
-}
-
-/** Parsed shape of `ShopSettings.label_config` (stored as JSON text). */
-export interface LabelConfig {
-  format: "ean13" | "code128" | "qrcode";
-  show_logo: boolean;
-  show_name: boolean;
-  show_price: boolean;
-  show_sku: boolean;
-  attribute_keys: string[];
-  width_mm: number;
-  height_mm: number;
 }

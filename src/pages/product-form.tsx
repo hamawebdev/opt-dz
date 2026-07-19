@@ -50,7 +50,7 @@ import {
   buildAttributeInputs,
   type AttrValues,
 } from "@/components/product-attribute-fields";
-import { BarcodeLabelDialog } from "@/components/barcode-label-dialog";
+import { LabelDesignerDialog } from "@/components/label-designer/label-designer-dialog";
 import { ProductVariantsEditor } from "@/components/product-variants-editor";
 import { ProductImagesEditor } from "@/components/product-images-editor";
 import { generateEan13 } from "@/lib/barcode";
@@ -439,25 +439,23 @@ export default function ProductFormPage() {
                           <Button
                             type="button"
                             variant="outline"
-                            size="icon"
-                            aria-label={t("inventory.generate")}
                             onClick={() =>
                               field.onChange(
                                 generateEan13(productId ?? Date.now()),
                               )
                             }
                           >
-                            <Sparkles className="size-4" />
+                            <Sparkles className="size-4" />{" "}
+                            {t("inventory.generate")}
                           </Button>
                           {isEdit && field.value && (
                             <Button
                               type="button"
                               variant="outline"
-                              size="icon"
-                              aria-label={t("inventory.printLabel")}
                               onClick={() => setLabelOpen(true)}
                             >
-                              <Printer className="size-4" />
+                              <Printer className="size-4" />{" "}
+                              {t("inventory.printLabel")}
                             </Button>
                           )}
                         </div>
@@ -671,8 +669,8 @@ export default function ProductFormPage() {
       </Card>
 
       {product && (
-        <BarcodeLabelDialog
-          product={product}
+        <LabelDesignerDialog
+          products={labelOpen ? [product] : null}
           open={labelOpen}
           onOpenChange={setLabelOpen}
         />

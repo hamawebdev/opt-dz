@@ -11,6 +11,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Toaster } from "@/components/ui/sonner";
 import { NotificationBell } from "@/components/notification-bell";
+import { LockButton } from "@/components/lock-button";
 
 // Maps the first route segment to its nav translation key.
 const SEGMENT_TO_NAV_KEY: Record<string, string> = {
@@ -40,7 +41,7 @@ function usePageTitle(): string {
 
 export default function Layout() {
   const title = usePageTitle();
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   // Run a scheduled database backup once per app session if one is due.
   // Delayed well past startup: the first page's queries and the backup snapshot
@@ -55,12 +56,16 @@ export default function Layout() {
       <AppSidebar />
       <SidebarInset>
         <header className="bg-background/80 supports-[backdrop-filter]:bg-background/65 sticky top-0 z-10 flex h-16 shrink-0 items-center gap-2.5 border-b px-5 backdrop-blur-xl">
-          <SidebarTrigger className="text-muted-foreground hover:text-foreground -ms-1" />
+          <SidebarTrigger
+            label={t("nav.menu")}
+            className="text-muted-foreground hover:text-foreground -ms-1"
+          />
           <Separator orientation="vertical" className="me-1 h-5" />
           <h1 className="text-[0.95rem] font-semibold tracking-tight">
             {title}
           </h1>
-          <div className="ms-auto">
+          <div className="ms-auto flex items-center gap-1">
+            <LockButton />
             <NotificationBell />
           </div>
         </header>

@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ShoppingCart, PauseCircle, Trash2, CreditCard } from "lucide-react";
+import {
+  ShoppingCart,
+  PauseCircle,
+  Trash2,
+  CreditCard,
+  RotateCcw,
+  UserRound,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -16,24 +23,32 @@ import { useCartStore } from "@/store/use-cart-store";
 import { PosCustomerBar } from "@/components/pos/pos-customer-bar";
 import { PosCartLine } from "@/components/pos/pos-cart-line";
 import { PosCartSummary } from "@/components/pos/pos-cart-summary";
+import { formatDZD } from "@/lib/format";
 import type { PosTotals } from "@/lib/pos-totals";
 
 export function PosCart({
   totals,
   symbol,
   simpleMode,
+  refundEstimate,
   onHold,
   onPay,
+  onStartReturn,
 }: {
   totals: PosTotals;
   symbol?: string;
   simpleMode: boolean;
+  refundEstimate: number;
   onHold: () => void;
   onPay: () => void;
+  onStartReturn: () => void;
 }) {
   const { t } = useTranslation();
   const lines = useCartStore((s) => s.lines);
   const clear = useCartStore((s) => s.clear);
+  const returnMode = useCartStore((s) => s.returnMode);
+  const returnSaleLabel = useCartStore((s) => s.returnSaleLabel);
+  const customerName = useCartStore((s) => s.customerName);
   const [confirmClear, setConfirmClear] = useState(false);
   const empty = lines.length === 0;
 
@@ -44,15 +59,42 @@ export function PosCart({
         <h2 className="flex items-center gap-2 font-semibold">
           <ShoppingCart className="size-4" /> {t("pos.cart")}
         </h2>
-        <span className="text-muted-foreground text-sm">
-          {totals.itemCount} {t("pos.items")}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-muted-foreground text-sm">
+            {totals.itemCount} {t("pos.items")}
+          </span>
+          {!returnMode && (
+            <Button variant="outline" size="sm" onClick={onStartReturn}>
+              <RotateCcw className="size-4" /> {t("pos.startReturn")}
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* ── Return-mode banner: the cart now refunds one existing sale ── */}
+      {returnMode && (
+        <div className="bg-destructive/10 text-destructive flex shrink-0 items-center gap-2 border-b px-3 py-2 text-sm font-medium">
+          <RotateCcw className="size-4 shrink-0" />
+          {t("pos.returnBanner", { invoice: returnSaleLabel ?? "" })}
+        </div>
+      )}
 
       {/* ── Scrollable region: customer bar + items + summary ── */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="border-b p-3">
-          <PosCustomerBar />
+          {returnMode ? (
+            // The customer comes from the original sale — not editable here.
+            <div className="flex items-center gap-2">
+              <div className="bg-muted text-muted-foreground flex size-9 shrink-0 items-center justify-center rounded-full">
+                <UserRound className="size-5" />
+              </div>
+              <span className="truncate text-sm font-medium">
+                {customerName ?? t("sales.walkIn")}
+              </span>
+            </div>
+          ) : (
+            <PosCustomerBar />
+          )}
         </div>
 
         <div className="px-3">
@@ -67,41 +109,68 @@ export function PosCart({
 
         {!empty && (
           <div className="border-t p-3">
-            <PosCartSummary
-              totals={totals}
-              symbol={symbol}
-              simpleMode={simpleMode}
-            />
+            {returnMode ? (
+              <div className="text-destructive flex justify-between font-semibold">
+                <span>{t("pos.refundTotal")}</span>
+                <span className="tabular-nums">
+                  {formatDZD(refundEstimate, symbol)}
+                </span>
+              </div>
+            ) : (
+              <PosCartSummary
+                totals={totals}
+                symbol={symbol}
+                simpleMode={simpleMode}
+              />
+            )}
           </div>
         )}
       </div>
 
       {/* ── Fixed bottom actions ── */}
       <div className="shrink-0 space-y-2 border-t p-3">
-        <div className="grid grid-cols-2 gap-2">
-          <Button
-            variant="outline"
-            className="h-11"
-            disabled={empty}
-            onClick={onHold}
-          >
-            <PauseCircle className="size-4" /> {t("pos.hold")}
+        {returnMode ? (
+          <Button variant="outline" className="h-11 w-full" onClick={clear}>
+            <Trash2 className="size-4" /> {t("pos.cancelReturn")}
           </Button>
-          <Button
-            variant="outline"
-            className="text-destructive hover:text-destructive h-11"
-            disabled={empty}
-            onClick={() => setConfirmClear(true)}
-          >
-            <Trash2 className="size-4" /> {t("pos.clearAll")}
-          </Button>
-        </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant="outline"
+              className="h-11"
+              disabled={empty}
+              onClick={onHold}
+            >
+              <PauseCircle className="size-4" /> {t("pos.hold")}
+            </Button>
+            <Button
+              variant="outline"
+              className="text-destructive hover:text-destructive h-11"
+              disabled={empty}
+              onClick={() => setConfirmClear(true)}
+            >
+              <Trash2 className="size-4" /> {t("pos.clearAll")}
+            </Button>
+          </div>
+        )}
         <Button
           className="h-14 w-full text-lg"
+          variant={returnMode ? "destructive" : "default"}
           disabled={empty}
           onClick={onPay}
         >
-          <CreditCard className="size-5" /> {t("pos.pay")}
+          {returnMode ? (
+            <>
+              <RotateCcw className="size-5" />
+              {t("pos.refundAmount", {
+                amount: formatDZD(refundEstimate, symbol),
+              })}
+            </>
+          ) : (
+            <>
+              <CreditCard className="size-5" /> {t("pos.pay")}
+            </>
+          )}
         </Button>
       </div>
 

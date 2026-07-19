@@ -16,6 +16,7 @@ import {
   ShoppingCart,
   FileText,
   CreditCard,
+  Hammer,
 } from "lucide-react";
 import { toast } from "sonner";
 import { notifyError } from "@/lib/errors";
@@ -32,6 +33,7 @@ import {
 } from "@/components/ui/table";
 import { Empty, EmptyDescription, EmptyTitle } from "@/components/ui/empty";
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { JobStatusPill } from "@/components/status-pill";
 import { PaymentDialog } from "@/components/payment-dialog";
 import { PrescriptionDialog } from "@/components/prescription-dialog";
 import { AppointmentDialog } from "@/components/appointment-dialog";
@@ -163,7 +165,7 @@ export default function PatientDetailPage() {
         </Button>
         <div className="flex gap-2">
           <Button asChild>
-            <Link to={`/sales/new?patient=${patientId}`}>
+            <Link to={`/pos?patient=${patientId}`}>
               <ShoppingCart className="size-4" /> {t("patients.newSale")}
             </Link>
           </Button>
@@ -353,11 +355,11 @@ export default function PatientDetailPage() {
                     </span>
                     <Button
                       variant="ghost"
-                      size="icon"
-                      aria-label={t("patients.deletePrescriptionAria")}
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
                       onClick={() => setRxToDelete(rx.id)}
                     >
-                      <Trash2 className="text-destructive size-4" />
+                      <Trash2 className="size-4" /> {t("common.delete")}
                     </Button>
                   </div>
                   <Table>
@@ -444,13 +446,17 @@ export default function PatientDetailPage() {
       {!!jobs?.length && (
         <Card>
           <CardHeader>
-            <CardTitle>{t("nav.jobs")}</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <Hammer className="text-muted-foreground size-5" />
+              {t("nav.jobs")}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             {jobs.map((j) => (
-              <div
+              <Link
                 key={j.id}
-                className="flex items-center justify-between border-b pb-2 last:border-0"
+                to={`/jobs/${j.id}`}
+                className="hover:bg-muted/50 -mx-2 flex items-center justify-between rounded-md border-b px-2 pb-2 last:border-0"
               >
                 <span>
                   {j.invoice_number
@@ -462,10 +468,8 @@ export default function PatientDetailPage() {
                       })
                     : ""}
                 </span>
-                <Badge variant={j.status === "ready" ? "default" : "secondary"}>
-                  {t(`jobStatus.${j.status}`)}
-                </Badge>
-              </div>
+                <JobStatusPill status={j.status} />
+              </Link>
             ))}
           </CardContent>
         </Card>

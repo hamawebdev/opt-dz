@@ -6,6 +6,8 @@ import {
   type ReturnItem,
   type ReturnMethod,
 } from "@/db/returns";
+import { logAudit } from "@/db/audit";
+import { useAppStore } from "@/store/use-app-store";
 
 export function useReturnsForSale(saleId: number | undefined) {
   return useQuery({
@@ -32,12 +34,23 @@ export function useCreateReturn() {
       notes: string | null;
       items: ReturnItem[];
     }) => createReturn(input),
-    onSuccess: () => {
+    onSuccess: (cnId, input) => {
+      // Audited here so every entry point (sale-detail, sales list, POS) logs.
+      const { currentStaffId, currentStaffName } = useAppStore.getState();
+      void logAudit({
+        staffId: currentStaffId,
+        staffName: currentStaffName,
+        action: "create_return",
+        entity: "sale",
+        entityId: input.sale_id,
+        detail: `cn:${cnId} · ${input.method}`,
+      });
       qc.invalidateQueries({ queryKey: ["returns"] });
       qc.invalidateQueries({ queryKey: ["sales"] });
       qc.invalidateQueries({ queryKey: ["products"] });
       qc.invalidateQueries({ queryKey: ["patients"] });
       qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["reports"] });
     },
   });
 }

@@ -396,7 +396,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
     .map_err(|e| e.to_string())?
         != 0;
     if has_lens {
-        sqlx::query(
+        let job = sqlx::query(
             "INSERT INTO jobs (sale_id, patient_id, prescription_id, status)
              VALUES (?1, ?2, ?3, 'ordered')",
         )
@@ -406,6 +406,13 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
         .execute(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
+        // Creation event so the job's timeline starts at 'ordered' (note stays NULL;
+        // the UI supplies the label, so nothing language-specific is stored).
+        sqlx::query("INSERT INTO job_events (job_id, status, note) VALUES (?1, 'ordered', NULL)")
+            .bind(job.last_insert_rowid())
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
     for it in &input.items {
@@ -1214,9 +1221,10 @@ async fn record_stock_change(app: AppHandle, input: StockChangeInput) -> Result<
     Ok(())
 }
 
-/// Advances a job's status, stamps delivered_at at 'collected', and records the
-/// stage change in job_events (per-stage history, H1) — atomically. Replaces the
-/// frontend transaction in `src/db/jobs.ts`.
+/// Moves a job to a new pipeline stage, stamps delivered_at at 'delivered'
+/// (clearing it on a backward move), and records the stage change in job_events
+/// (per-stage history, H1) — atomically. Replaces the frontend transaction in
+/// `src/db/jobs.ts`.
 #[tauri::command]
 #[specta::specta]
 async fn update_job_status(
@@ -1225,15 +1233,23 @@ async fn update_job_status(
     status: String,
     note: Option<String>,
 ) -> Result<(), String> {
+    const JOB_STATUSES: [&str; 4] = ["ordered", "in_progress", "ready", "delivered"];
+    if !JOB_STATUSES.contains(&status.as_str()) {
+        return Err(format!("Unknown job status: {status}"));
+    }
     let pool = db_pool(&app).await?;
     let mut tx = pool
         .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|e| e.to_string())?;
+    // Delivered stamps delivered_at once (kept if re-confirmed); moving away from
+    // delivered clears it so a mistaken hand-off leaves no stale timestamp.
     let updated = sqlx::query(
         "UPDATE jobs
             SET status = ?1,
-                delivered_at = CASE WHEN ?1 = 'collected' THEN datetime('now') ELSE delivered_at END,
+                delivered_at = CASE WHEN ?1 = 'delivered'
+                                    THEN COALESCE(delivered_at, datetime('now'))
+                                    ELSE NULL END,
                 updated_at = datetime('now')
           WHERE id = ?2",
     )
@@ -2735,6 +2751,102 @@ fn migrations() -> Vec<Migration> {
                 ('auto_backup_interval_days', '1'),
                 ('auto_backup_keep', '14'),
                 ('last_auto_backup', '');
+        "#,
+        },
+        // Lab workflow redesign: collapse the 5 job stages into a 4-step pipeline
+        // (ordered → in_progress → ready → delivered) that staff advance one tap at
+        // a time. The CHECK change needs a table rebuild (v19's defer_foreign_keys +
+        // snapshot pattern); job_events must be snapshotted too because dropping
+        // `jobs` cascade-deletes it. Historic event rows are remapped to the new
+        // vocabulary so timelines render consistently, and jobs auto-created by
+        // `create_sale` (which historically logged no event) get a backfilled
+        // creation entry so no timeline is empty.
+        Migration {
+            version: 24,
+            description: "job_pipeline_four_stages",
+            kind: MigrationKind::Up,
+            sql: r#"
+            PRAGMA defer_foreign_keys = ON;
+
+            CREATE TEMP TABLE _v24_job AS SELECT * FROM jobs;
+            CREATE TEMP TABLE _v24_ev  AS SELECT * FROM job_events;
+
+            DROP TABLE jobs;
+            CREATE TABLE jobs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                sale_id         INTEGER REFERENCES sales(id) ON DELETE SET NULL,
+                patient_id      INTEGER REFERENCES patients(id) ON DELETE CASCADE,
+                prescription_id INTEGER REFERENCES prescriptions(id) ON DELETE SET NULL,
+                lab             TEXT,
+                status          TEXT NOT NULL DEFAULT 'ordered'
+                                 CHECK (status IN ('ordered','in_progress','ready','delivered')),
+                expected_ready  TEXT,
+                delivered_at    TEXT,
+                notes           TEXT,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            INSERT INTO jobs (id, sale_id, patient_id, prescription_id, lab, status,
+                              expected_ready, delivered_at, notes, created_at, updated_at)
+              SELECT id, sale_id, patient_id, prescription_id, lab,
+                     CASE status
+                       WHEN 'at_lab'    THEN 'in_progress'
+                       WHEN 'edging'    THEN 'in_progress'
+                       WHEN 'collected' THEN 'delivered'
+                       ELSE status
+                     END,
+                     expected_ready, delivered_at, notes, created_at, updated_at
+                FROM _v24_job;
+            CREATE INDEX idx_jobs_status ON jobs(status);
+            CREATE INDEX idx_jobs_patient ON jobs(patient_id);
+            CREATE INDEX idx_jobs_sale ON jobs(sale_id);
+
+            -- Restore the stage history the drop cascade-emptied, remapped the same way.
+            INSERT INTO job_events (id, job_id, status, note, created_at)
+              SELECT id, job_id,
+                     CASE status
+                       WHEN 'at_lab'    THEN 'in_progress'
+                       WHEN 'edging'    THEN 'in_progress'
+                       WHEN 'collected' THEN 'delivered'
+                       ELSE status
+                     END,
+                     note, created_at
+                FROM _v24_ev;
+
+            -- Backfill a creation event for jobs that never got one.
+            INSERT INTO job_events (job_id, status, note, created_at)
+              SELECT j.id, 'ordered', NULL, j.created_at
+                FROM jobs j
+               WHERE NOT EXISTS (SELECT 1 FROM job_events e
+                                  WHERE e.job_id = j.id AND e.status = 'ordered');
+
+            DROP TABLE _v24_job;
+            DROP TABLE _v24_ev;
+        "#,
+        },
+        // Manager PIN → shop password. The PIN was an unsalted, single-round
+        // SHA-256; the replacement is PBKDF2 with a versioned, self-describing
+        // record plus a one-time recovery code, both hashed in the webview (no new
+        // Rust dependency) and stored here. The old PIN row is deleted rather than
+        // converted — its hash cannot be re-derived into the new format, so every
+        // shop sets a fresh password. `discount_pin_threshold` goes with it: it was
+        // seeded in v23 and no code ever read it.
+        //
+        // Idempotent by construction, which matters because restoring a backup
+        // taken before this version rewinds `_sqlx_migrations` and re-runs it:
+        // DELETE is a no-op the second time, and INSERT OR IGNORE never overwrites
+        // a password set after the first run.
+        Migration {
+            version: 25,
+            description: "manager_password_replaces_pin",
+            kind: MigrationKind::Up,
+            sql: r#"
+            DELETE FROM settings
+             WHERE key IN ('manager_pin_hash', 'discount_pin_threshold');
+
+            INSERT OR IGNORE INTO settings (key, value) VALUES
+                ('manager_password_hash', ''),
+                ('manager_recovery_hash', '');
         "#,
         },
     ]

@@ -84,10 +84,9 @@ export async function createSale(input: CreateSaleInput): Promise<number> {
   );
 }
 
-export async function listSales(
-  filters: SaleListFilters = {},
-): Promise<SaleWithPatient[]> {
-  const db = await getDb();
+/** Shared WHERE fragments (aliased `s`) for the sales list, its items column and
+ * its KPI header, so all three always agree on what is being shown. */
+function saleFilterParts(filters: SaleListFilters) {
   const where: string[] = [];
   const params: unknown[] = [];
   if (filters.patientId) {
@@ -102,6 +101,14 @@ export async function listSales(
     params.push(filters.to);
     where.push(`date(s.sale_date) <= date($${params.length})`);
   }
+  return { where, params };
+}
+
+export async function listSales(
+  filters: SaleListFilters = {},
+): Promise<SaleWithPatient[]> {
+  const db = await getDb();
+  const { where, params } = saleFilterParts(filters);
   const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
   return db.select<SaleWithPatient[]>(
     `SELECT s.*, p.full_name AS patient_name
@@ -110,6 +117,122 @@ export async function listSales(
      ORDER BY s.sale_date DESC, s.id DESC`,
     params,
   );
+}
+
+/** One line of a sale, as shown in the list's "Items" column. */
+export interface SaleItemSummary {
+  sale_id: number;
+  description: string;
+  quantity: number;
+}
+
+/** Items of every sale matching the list filters, in one query (no per-row fetch).
+ * The page groups them by `sale_id`. */
+export async function listSaleItemSummaries(
+  filters: SaleListFilters = {},
+): Promise<SaleItemSummary[]> {
+  const db = await getDb();
+  const { where, params } = saleFilterParts(filters);
+  const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+  return db.select<SaleItemSummary[]>(
+    `SELECT si.sale_id AS sale_id, si.description AS description, si.quantity AS quantity
+     FROM sale_items si JOIN sales s ON s.id = si.sale_id
+     ${clause}
+     ORDER BY si.sale_id, si.id`,
+    params,
+  );
+}
+
+// All money fields are integer centimes.
+export interface SalesListStats {
+  salesCount: number; // non-void invoices in the filtered set
+  revenue: number; // billed goods total (TTC)
+  collected: number; // cash actually received on those invoices
+  netProfit: number; // revenue minus COGS snapshots
+  itemsSold: number; // units across all lines
+  discounts: number; // line discounts + overall invoice discounts
+  refunds: number; // credit notes issued (avoirs)
+  outstanding: number; // balances still owed
+  pendingCount: number; // invoices with a balance > 0
+}
+
+/**
+ * KPI aggregates for the sales list header, honoring the same filters as the list.
+ * Void invoices are excluded everywhere. Refunds are credit notes counted on their
+ * own creation date (same convention as the reports revenue queries).
+ */
+export async function getSalesListStats(
+  filters: SaleListFilters = {},
+): Promise<SalesListStats> {
+  const db = await getDb();
+  const { where, params } = saleFilterParts(filters);
+  const saleClause = ["s.status <> 'void'", ...where].join(" AND ");
+
+  // Credit notes carry their own patient/date columns, so they get their own filter.
+  const cnWhere: string[] = [];
+  const cnParams: unknown[] = [];
+  if (filters.patientId) {
+    cnParams.push(filters.patientId);
+    cnWhere.push(`patient_id = $${cnParams.length}`);
+  }
+  if (filters.from) {
+    cnParams.push(filters.from);
+    // created_at is stored UTC; compare on the local day like the sales filter.
+    cnWhere.push(`date(created_at,'localtime') >= date($${cnParams.length})`);
+  }
+  if (filters.to) {
+    cnParams.push(filters.to);
+    cnWhere.push(`date(created_at,'localtime') <= date($${cnParams.length})`);
+  }
+  const cnClause = cnWhere.length ? `WHERE ${cnWhere.join(" AND ")}` : "";
+
+  const [saleRows, itemRows, cnRows] = await Promise.all([
+    db.select<
+      {
+        cnt: number;
+        revenue: number;
+        collected: number;
+        global_discounts: number;
+        outstanding: number;
+        pending_cnt: number;
+      }[]
+    >(
+      `SELECT COUNT(*) AS cnt,
+              COALESCE(SUM(s.total), 0) AS revenue,
+              COALESCE(SUM(s.amount_paid), 0) AS collected,
+              COALESCE(SUM(s.subtotal - s.total), 0) AS global_discounts,
+              COALESCE(SUM(CASE WHEN s.balance > 0 THEN s.balance ELSE 0 END), 0) AS outstanding,
+              COALESCE(SUM(CASE WHEN s.balance > 0 THEN 1 ELSE 0 END), 0) AS pending_cnt
+       FROM sales s WHERE ${saleClause}`,
+      params,
+    ),
+    db.select<{ items_sold: number; item_discounts: number; cogs: number }[]>(
+      `SELECT COALESCE(SUM(si.quantity), 0) AS items_sold,
+              COALESCE(SUM(si.item_discount), 0) AS item_discounts,
+              COALESCE(SUM(si.unit_cost * si.quantity), 0) AS cogs
+       FROM sale_items si JOIN sales s ON s.id = si.sale_id
+       WHERE ${saleClause}`,
+      params,
+    ),
+    db.select<{ refunds: number }[]>(
+      `SELECT COALESCE(SUM(total), 0) AS refunds FROM credit_notes ${cnClause}`,
+      cnParams,
+    ),
+  ]);
+
+  const s = saleRows[0];
+  const it = itemRows[0];
+  return {
+    salesCount: s?.cnt ?? 0,
+    revenue: s?.revenue ?? 0,
+    collected: s?.collected ?? 0,
+    netProfit: (s?.revenue ?? 0) - (it?.cogs ?? 0),
+    itemsSold: it?.items_sold ?? 0,
+    discounts: (s?.global_discounts ?? 0) + (it?.item_discounts ?? 0),
+    refunds: cnRows[0]?.refunds ?? 0,
+    outstanding: s?.outstanding ?? 0,
+    pendingCount: s?.pending_cnt ?? 0,
+  };
 }
 
 export async function getSale(id: number): Promise<SaleWithPatient | null> {
@@ -137,6 +260,9 @@ export async function getSaleItems(saleId: number): Promise<SaleItem[]> {
  * cancelled. Issued invoices are never hard-deleted (that would break the gap-free
  * TVA sequence). Optionally records a reason.
  */
-export async function voidSale(id: number, reason?: string | null): Promise<void> {
+export async function voidSale(
+  id: number,
+  reason?: string | null,
+): Promise<void> {
   unwrap(await commands.voidSale(id, reason ?? null));
 }

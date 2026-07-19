@@ -8,6 +8,12 @@ import {
   Trash2,
   PackagePlus,
   Barcode,
+  Package,
+  Boxes,
+  Banknote,
+  Tags,
+  TrendingUp,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { notifyError } from "@/lib/errors";
@@ -32,13 +38,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import { ErrorState } from "@/components/error-state";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DeliveryDialog } from "@/components/delivery-dialog";
-import { BarcodeLabelDialog } from "@/components/barcode-label-dialog";
+import { LabelDesignerDialog } from "@/components/label-designer/label-designer-dialog";
+import { StatCard } from "@/components/stat-card";
 import {
   useBrands,
   useArchiveProduct,
+  useInventorySummary,
   useProducts,
 } from "@/hooks/use-inventory";
 import { useFilterableAttributes } from "@/hooks/use-attributes";
@@ -67,7 +76,10 @@ export default function InventoryListPage() {
   >("all");
   const [toDelete, setToDelete] = useState<number | null>(null);
   const [deliveryFor, setDeliveryFor] = useState<Product | null>(null);
-  const [labelFor, setLabelFor] = useState<Product | null>(null);
+  const [designerProducts, setDesignerProducts] = useState<Product[] | null>(
+    null,
+  );
+  const [checked, setChecked] = useState<Set<number>>(new Set());
   const [facets, setFacets] = useState<FacetSelection>({});
 
   const filters = useMemo(
@@ -91,6 +103,46 @@ export default function InventoryListPage() {
   const symbol = settings?.currency_symbol;
   const archive = useArchiveProduct();
 
+  // Whole-inventory KPIs — deliberately independent of the filters below so the
+  // headline numbers stay stable while staff search and filter the table.
+  const summaryQuery = useInventorySummary();
+  const summary = summaryQuery.data;
+  const summaryLoading = summaryQuery.isLoading;
+
+  // Multi-select for bulk label printing. Services have no labels, so they are
+  // never selectable. The Set may hold ids filtered out of view; the effective
+  // selection is always the intersection with the visible list, so stale ids
+  // are harmless (and re-appear checked when the filter brings them back).
+  const selectable = useMemo(
+    () => (products ?? []).filter((p) => p.item_type !== "service"),
+    [products],
+  );
+  const checkedProducts = useMemo(
+    () => selectable.filter((p) => checked.has(p.id)),
+    [selectable, checked],
+  );
+
+  const allChecked =
+    selectable.length > 0 && checkedProducts.length === selectable.length;
+
+  function toggle(id: number) {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setChecked(allChecked ? new Set() : new Set(selectable.map((p) => p.id)));
+  }
+  const profit = summary ? summary.totalValue - summary.totalCost : 0;
+  const kpiCount = (n: number | undefined) =>
+    summaryQuery.isError ? "—" : (n ?? 0).toLocaleString("en-US");
+  const kpiMoney = (n: number | undefined) =>
+    summaryQuery.isError ? "—" : formatDZD(n, symbol);
+
   async function handleDelete() {
     if (toDelete == null) return;
     try {
@@ -105,6 +157,43 @@ export default function InventoryListPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <StatCard
+          title={t("inventory.kpiProducts")}
+          value={kpiCount(summary?.productCount)}
+          icon={<Package className="size-5" />}
+          loading={summaryLoading}
+        />
+        <StatCard
+          title={t("inventory.kpiUnits")}
+          value={kpiCount(summary?.totalUnits)}
+          icon={<Boxes className="size-5" />}
+          loading={summaryLoading}
+        />
+        <StatCard
+          title={t("inventory.kpiInvestment")}
+          value={kpiMoney(summary?.totalCost)}
+          sub={t("inventory.kpiInvestmentSub")}
+          icon={<Banknote className="size-5" />}
+          loading={summaryLoading}
+        />
+        <StatCard
+          title={t("inventory.kpiValue")}
+          value={kpiMoney(summary?.totalValue)}
+          sub={t("inventory.kpiValueSub")}
+          icon={<Tags className="size-5" />}
+          loading={summaryLoading}
+        />
+        <StatCard
+          title={t("inventory.kpiProfit")}
+          value={kpiMoney(profit)}
+          sub={t("inventory.kpiProfitSub")}
+          icon={<TrendingUp className="size-5" />}
+          accent={summary && profit < 0 ? "warning" : "success"}
+          loading={summaryLoading}
+        />
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <Tabs
           value={category}
@@ -187,10 +276,32 @@ export default function InventoryListPage() {
         onChange={setFacets}
       />
 
+      {checkedProducts.length > 0 && (
+        <div className="bg-accent/60 flex flex-wrap items-center gap-3 rounded-lg border px-4 py-2">
+          <span className="text-sm font-medium">
+            {t("inventory.selectedCount", { count: checkedProducts.length })}
+          </span>
+          <Button onClick={() => setDesignerProducts(checkedProducts)}>
+            <Barcode className="size-4" /> {t("inventory.printLabels")}
+          </Button>
+          <Button variant="ghost" onClick={() => setChecked(new Set())}>
+            <X className="size-4" /> {t("inventory.clearSelection")}
+          </Button>
+        </div>
+      )}
+
       <Card className="p-0">
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={allChecked}
+                  onCheckedChange={toggleAll}
+                  disabled={selectable.length === 0}
+                  aria-label={t("inventory.selectAll")}
+                />
+              </TableHead>
               <TableHead>{t("common.name")}</TableHead>
               <TableHead>{t("common.category")}</TableHead>
               <TableHead>{t("common.brand")}</TableHead>
@@ -210,14 +321,14 @@ export default function InventoryListPage() {
             {isLoading ? (
               Array.from({ length: 5 }).map((_, i) => (
                 <TableRow key={i}>
-                  <TableCell colSpan={7}>
+                  <TableCell colSpan={8}>
                     <Skeleton className="h-6 w-full" />
                   </TableCell>
                 </TableRow>
               ))
             ) : productsQuery.isError ? (
               <TableRow>
-                <TableCell colSpan={7} className="p-0">
+                <TableCell colSpan={8} className="p-0">
                   <ErrorState
                     className="border-0"
                     onRetry={() => productsQuery.refetch()}
@@ -227,7 +338,7 @@ export default function InventoryListPage() {
             ) : !products?.length ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="text-muted-foreground py-10 text-center"
                 >
                   {t("inventory.noProducts")}
@@ -239,6 +350,17 @@ export default function InventoryListPage() {
                 const low = p.quantity <= p.min_stock;
                 return (
                   <TableRow key={p.id}>
+                    <TableCell>
+                      {!isService && (
+                        <Checkbox
+                          checked={checked.has(p.id)}
+                          onCheckedChange={() => toggle(p.id)}
+                          aria-label={t("inventory.selectProduct", {
+                            name: p.name,
+                          })}
+                        />
+                      )}
+                    </TableCell>
                     <TableCell className="font-medium">
                       <span className="flex items-center gap-2">
                         {primaryImages?.[p.id] && (
@@ -285,42 +407,39 @@ export default function InventoryListPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
+                      <div className="flex flex-wrap justify-end gap-1">
                         {!isService && (
                           <Button
                             variant="ghost"
-                            size="icon"
-                            aria-label={t("inventory.recordDeliveryAria")}
+                            size="sm"
                             onClick={() => setDeliveryFor(p)}
                           >
-                            <PackagePlus className="size-4" />
+                            <PackagePlus className="size-4" />{" "}
+                            {t("inventory.deliveryBtn")}
                           </Button>
                         )}
                         {!isService && (
                           <Button
                             variant="ghost"
-                            size="icon"
-                            aria-label={t("inventory.printLabel")}
-                            onClick={() => setLabelFor(p)}
+                            size="sm"
+                            onClick={() => setDesignerProducts([p])}
                           >
-                            <Barcode className="size-4" />
+                            <Barcode className="size-4" />{" "}
+                            {t("inventory.labelBtn")}
                           </Button>
                         )}
-                        <Button variant="ghost" size="icon" asChild>
-                          <Link
-                            to={`/inventory/${p.id}/edit`}
-                            aria-label={t("common.edit")}
-                          >
-                            <Pencil className="size-4" />
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link to={`/inventory/${p.id}/edit`}>
+                            <Pencil className="size-4" /> {t("common.edit")}
                           </Link>
                         </Button>
                         <Button
                           variant="ghost"
-                          size="icon"
-                          aria-label={t("inventory.archive")}
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
                           onClick={() => setToDelete(p.id)}
                         >
-                          <Trash2 className="text-destructive size-4" />
+                          <Trash2 className="size-4" /> {t("inventory.archive")}
                         </Button>
                       </div>
                     </TableCell>
@@ -338,11 +457,11 @@ export default function InventoryListPage() {
         open={deliveryFor != null}
         onOpenChange={(o) => !o && setDeliveryFor(null)}
       />
-      <BarcodeLabelDialog
-        key={`label-${labelFor?.id ?? "none"}`}
-        product={labelFor}
-        open={labelFor != null}
-        onOpenChange={(o) => !o && setLabelFor(null)}
+      <LabelDesignerDialog
+        products={designerProducts}
+        open={designerProducts != null}
+        onOpenChange={(o) => !o && setDesignerProducts(null)}
+        onPrinted={() => setChecked(new Set())}
       />
       <ConfirmDialog
         open={toDelete != null}

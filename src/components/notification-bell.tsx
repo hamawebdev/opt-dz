@@ -7,6 +7,7 @@ import {
   PackageX,
   CalendarClock,
   CheckCheck,
+  PackageCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,20 +17,16 @@ import {
 } from "@/components/ui/popover";
 import { useNotificationFeed } from "@/hooks/use-notifications";
 import { useNotificationsStore } from "@/store/use-notifications-store";
-import type { AppNotification, NotificationKind } from "@/db/notifications";
+import { notificationLink, type NotificationKind } from "@/db/notifications";
 
 const ICON: Record<NotificationKind, typeof Bell> = {
   out_of_stock: PackageX,
   low_stock: AlertTriangle,
   expired: CalendarClock,
   expiring_soon: CalendarClock,
+  job_overdue: CalendarClock,
+  job_ready: PackageCheck,
 };
-
-function notifLink(n: AppNotification): string {
-  return n.kind === "expired" || n.kind === "expiring_soon"
-    ? "/tracking"
-    : `/inventory/${n.productId}/edit`;
-}
 
 export function NotificationBell() {
   const { t } = useTranslation();
@@ -43,16 +40,17 @@ export function NotificationBell() {
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
-          className="text-muted-foreground hover:text-foreground relative"
-          aria-label={t("nav.notifications")}
+          className="text-muted-foreground hover:text-foreground"
         >
-          <Bell className="size-5" />
-          {unread.length > 0 && (
-            <span className="bg-destructive text-destructive-foreground absolute -end-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold">
-              {unread.length > 9 ? "9+" : unread.length}
-            </span>
-          )}
+          <span className="relative">
+            <Bell className="size-5" />
+            {unread.length > 0 && (
+              <span className="bg-destructive text-destructive-foreground absolute -end-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold">
+                {unread.length > 9 ? "9+" : unread.length}
+              </span>
+            )}
+          </span>
+          {t("nav.notifications")}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 p-0">
@@ -83,7 +81,7 @@ export function NotificationBell() {
               return (
                 <Link
                   key={n.id}
-                  to={notifLink(n)}
+                  to={notificationLink(n)}
                   onClick={() => {
                     dismiss(n.id);
                     setOpen(false);
@@ -100,7 +98,7 @@ export function NotificationBell() {
                   />
                   <span className="text-sm">
                     {t(`notifications.${n.kind}`, {
-                      name: n.productName,
+                      name: n.name || t("sales.walkIn"),
                       meta: n.meta,
                     })}
                   </span>

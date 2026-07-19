@@ -10,6 +10,8 @@ import {
   Receipt,
   RotateCcw,
   Ban,
+  AlertTriangle,
+  Hammer,
 } from "lucide-react";
 import { toast } from "sonner";
 import { notifyError } from "@/lib/errors";
@@ -30,6 +32,9 @@ import { HelpHint } from "@/components/help-hint";
 import { PromptDialog } from "@/components/prompt-dialog";
 import { PaymentDialog } from "@/components/payment-dialog";
 import { ReturnDialog } from "@/components/return-dialog";
+import { NewJobDialog } from "@/components/new-job-dialog";
+import { JobStatusPill, StatusPill } from "@/components/status-pill";
+import { useJobForSale } from "@/hooks/use-jobs";
 import { useReturnsForSale, useReturnedQuantities } from "@/hooks/use-returns";
 import {
   useDeletePayment,
@@ -42,11 +47,10 @@ import { useClaimForSale } from "@/hooks/use-claims";
 import { useSettings } from "@/hooks/use-settings";
 import { commands } from "@/lib/bindings";
 import { unwrap } from "@/lib/db";
-import { verifyManagerPin } from "@/lib/auth";
 import { logAudit } from "@/db/audit";
 import { useAppStore, useSimpleMode } from "@/store/use-app-store";
 import { buildReceiptLines } from "@/lib/receipt";
-import { formatDZD, formatDateTime } from "@/lib/format";
+import { formatDZD, formatDate, formatDateTime } from "@/lib/format";
 import type { SaleStatus } from "@/types";
 
 const statusVariant: Record<
@@ -71,6 +75,7 @@ export default function SaleDetailPage() {
   const { data: claim } = useClaimForSale(saleId);
   const { data: returns } = useReturnsForSale(saleId);
   const { data: returnedMap } = useReturnedQuantities(saleId);
+  const { data: labJob } = useJobForSale(saleId);
   const { data: settings } = useSettings();
   const symbol = settings?.currency_symbol;
 
@@ -85,6 +90,7 @@ export default function SaleDetailPage() {
   const [paymentToDelete, setPaymentToDelete] = useState<number | null>(null);
   const [printing, setPrinting] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
+  const [newJobOpen, setNewJobOpen] = useState(false);
 
   async function printReceipt() {
     if (!sale || !items || !settings) return;
@@ -119,14 +125,6 @@ export default function SaleDetailPage() {
     );
 
   async function handleVoidSale(values: Record<string, string>) {
-    // Manager-PIN gate (when configured) before this destructive action.
-    if (settings?.manager_pin_hash) {
-      const ok = await verifyManagerPin(values.pin ?? "");
-      if (!ok) {
-        toast.error(t("auth.wrongPin"));
-        return;
-      }
-    }
     try {
       await voidSale.mutateAsync({ id: saleId, reason: values.reason || null });
       void logAudit({
@@ -230,6 +228,53 @@ export default function SaleDetailPage() {
             <p className="text-muted-foreground pt-2 whitespace-pre-wrap">
               {sale.notes}
             </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Lab order attached to this sale — the sale↔lab bridge. */}
+      <Card>
+        <CardHeader className="flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <Hammer className="text-muted-foreground size-5" />
+            {t("jobs.labOrderCard")}
+          </CardTitle>
+          {labJob && (
+            <Button variant="outline" size="sm" asChild>
+              <Link to={`/jobs/${labJob.id}`}>{t("jobs.viewOrder")}</Link>
+            </Button>
+          )}
+        </CardHeader>
+        <CardContent className="text-sm">
+          {labJob ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <JobStatusPill status={labJob.status} />
+              {!!labJob.overdue && (
+                <StatusPill
+                  tone="danger"
+                  icon={AlertTriangle}
+                  label={t("jobs.late")}
+                />
+              )}
+              {labJob.expected_ready && (
+                <span className="text-muted-foreground">
+                  {t("jobs.expected")}: {formatDate(labJob.expected_ready)}
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-muted-foreground">{t("jobs.noLabOrder")}</p>
+              {sale.status !== "void" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setNewJobOpen(true)}
+                >
+                  <Hammer className="size-4" /> {t("jobs.createForSale")}
+                </Button>
+              )}
+            </div>
           )}
         </CardContent>
       </Card>
@@ -389,11 +434,11 @@ export default function SaleDetailPage() {
                     <TableCell>
                       <Button
                         variant="ghost"
-                        size="icon"
-                        aria-label={t("sales.removePaymentAria")}
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
                         onClick={() => setPaymentToDelete(p.id)}
                       >
-                        <Trash2 className="text-destructive size-4" />
+                        <Trash2 className="size-4" /> {t("common.remove")}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -416,8 +461,11 @@ export default function SaleDetailPage() {
                 className="flex justify-between border-b pb-2 last:border-0"
               >
                 <span>
+                  {cn.cn_number && (
+                    <span className="font-medium">{cn.cn_number} · </span>
+                  )}
                   {formatDateTime(cn.created_at)} ·{" "}
-                  <span>{t("returnMethod.refund")}</span>
+                  <span>{t(`returnMethod.${cn.method}`)}</span>
                   {cn.notes ? ` · ${cn.notes}` : ""}
                 </span>
                 <span className="font-medium">
@@ -457,16 +505,6 @@ export default function SaleDetailPage() {
             label: t("sales.voidReason"),
             placeholder: t("sales.voidReasonPlaceholder"),
           },
-          ...(settings?.manager_pin_hash
-            ? [
-                {
-                  name: "pin",
-                  label: t("auth.managerPin"),
-                  type: "number" as const,
-                  inputMode: "numeric" as const,
-                },
-              ]
-            : []),
         ]}
         confirmText={t("sales.void")}
         onSubmit={handleVoidSale}
@@ -478,6 +516,16 @@ export default function SaleDetailPage() {
         description={t("sales.removePaymentDesc")}
         confirmText={t("common.remove")}
         onConfirm={handleDeletePayment}
+      />
+      <NewJobDialog
+        open={newJobOpen}
+        onOpenChange={setNewJobOpen}
+        defaults={{
+          patientId: sale.patient_id ?? undefined,
+          saleId,
+          prescriptionId: sale.prescription_id ?? undefined,
+        }}
+        onCreated={(jobId) => navigate(`/jobs/${jobId}`)}
       />
     </div>
   );

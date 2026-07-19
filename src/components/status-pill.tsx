@@ -3,14 +3,11 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
-  ClipboardList,
-  FlaskConical,
-  Scissors,
-  PackageCheck,
   Ban,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
+import { JOB_META } from "@/lib/job-meta";
 import type { JobStatus, SaleStatus } from "@/types";
 
 export type StatusTone = "success" | "warning" | "danger" | "info" | "neutral";
@@ -54,14 +51,6 @@ export function StatusPill({
     </span>
   );
 }
-
-const JOB_META: Record<JobStatus, { tone: StatusTone; icon: LucideIcon }> = {
-  ordered: { tone: "neutral", icon: ClipboardList },
-  at_lab: { tone: "info", icon: FlaskConical },
-  edging: { tone: "info", icon: Scissors },
-  ready: { tone: "success", icon: CheckCircle2 },
-  collected: { tone: "neutral", icon: PackageCheck },
-};
 
 export function JobStatusPill({ status }: { status: JobStatus }) {
   const { t } = useTranslation();

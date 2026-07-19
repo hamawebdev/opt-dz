@@ -112,9 +112,10 @@ async recordStockChange(input: StockChangeInput) : Promise<Result<null, string>>
 }
 },
 /**
- * Advances a job's status, stamps delivered_at at 'collected', and records the
- * stage change in job_events (per-stage history, H1) — atomically. Replaces the
- * frontend transaction in `src/db/jobs.ts`.
+ * Moves a job to a new pipeline stage, stamps delivered_at at 'delivered'
+ * (clearing it on a backward move), and records the stage change in job_events
+ * (per-stage history, H1) — atomically. Replaces the frontend transaction in
+ * `src/db/jobs.ts`.
  */
 async updateJobStatus(jobId: number, status: string, note: string | null) : Promise<Result<null, string>> {
     try {

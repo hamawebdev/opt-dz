@@ -168,25 +168,24 @@ function VariantRow({ variant }: { variant: ProductVariant }) {
         />
       </TableCell>
       <TableCell>
-        <div className="flex justify-end gap-1">
+        <div className="flex flex-wrap justify-end gap-1">
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            aria-label={t("variants.save")}
+            size="sm"
             onClick={save}
             disabled={update.isPending}
           >
-            <Save className="size-4" />
+            <Save className="size-4" /> {t("variants.save")}
           </Button>
           <Button
             type="button"
             variant="ghost"
-            size="icon"
-            aria-label={t("variants.delete")}
+            size="sm"
+            className="text-destructive hover:text-destructive"
             onClick={() => del.mutate(variant.id)}
           >
-            <Trash2 className="text-destructive size-4" />
+            <Trash2 className="size-4" /> {t("variants.delete")}
           </Button>
         </div>
       </TableCell>

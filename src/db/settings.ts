@@ -26,9 +26,9 @@ const DEFAULTS: ShopSettings = {
   client_code_padding: "4",
   client_code_next: "1",
   receipt_config: "",
-  label_config: "",
-  manager_pin_hash: "",
-  discount_pin_threshold: "2000",
+  label_templates: "",
+  manager_password_hash: "",
+  manager_recovery_hash: "",
   auto_backup_enabled: "0",
   auto_backup_interval_days: "1",
   auto_backup_keep: "14",
@@ -71,10 +71,14 @@ export async function getSettings(): Promise<ShopSettings> {
       map.get("client_code_padding") || DEFAULTS.client_code_padding,
     client_code_next: map.get("client_code_next") || DEFAULTS.client_code_next,
     receipt_config: map.get("receipt_config") ?? DEFAULTS.receipt_config,
-    label_config: map.get("label_config") ?? DEFAULTS.label_config,
-    manager_pin_hash: map.get("manager_pin_hash") ?? DEFAULTS.manager_pin_hash,
-    discount_pin_threshold:
-      map.get("discount_pin_threshold") || DEFAULTS.discount_pin_threshold,
+    label_templates: map.get("label_templates") ?? DEFAULTS.label_templates,
+    // `??`, never `||`: a stored empty string means "not set" and must survive
+    // the read. `||` would substitute the default and could resurrect a cleared
+    // credential if a default ever became non-empty.
+    manager_password_hash:
+      map.get("manager_password_hash") ?? DEFAULTS.manager_password_hash,
+    manager_recovery_hash:
+      map.get("manager_recovery_hash") ?? DEFAULTS.manager_recovery_hash,
     auto_backup_enabled:
       map.get("auto_backup_enabled") ?? DEFAULTS.auto_backup_enabled,
     auto_backup_interval_days:

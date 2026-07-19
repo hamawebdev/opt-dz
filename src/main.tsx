@@ -1,6 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { createHashRouter, RouterProvider } from "react-router-dom";
+import { createHashRouter, redirect, RouterProvider } from "react-router-dom";
 import {
   MutationCache,
   QueryCache,
@@ -13,6 +13,7 @@ import { describeError, isDatabaseBusy, notifyError } from "@/lib/errors";
 import { ThemeProvider } from "@/components/theme-provider";
 import { LocaleProvider } from "@/components/locale-provider";
 import { Onboarding } from "@/components/onboarding";
+import { RequireUnlock } from "@/components/require-unlock";
 import Layout from "@/components/layout";
 import "@/lib/i18n";
 import HomePage from "@/pages/home";
@@ -27,11 +28,10 @@ import TrackingProductsPage from "@/pages/tracking-products";
 import NotificationsPage from "@/pages/notifications";
 import SalesListPage from "@/pages/sales-list";
 import PosPage from "@/pages/pos";
-import SaleFormPage from "@/pages/sale-form";
 import SaleDetailPage from "@/pages/sale-detail";
 import SalePrintPage from "@/pages/sale-print";
-import LabelPrintPage from "@/pages/label-print";
 import JobsPage from "@/pages/jobs";
+import JobDetailPage from "@/pages/job-detail";
 import AppointmentsPage from "@/pages/appointments";
 import InsurancePage from "@/pages/insurance";
 import SuppliersPage from "@/pages/suppliers";
@@ -102,24 +102,40 @@ const router = createHashRouter([
       { path: "patients/import", element: <PatientsImportPage /> },
       { path: "patients/:id", element: <PatientDetailPage /> },
       { path: "patients/:id/edit", element: <PatientFormPage /> },
-      { path: "inventory", element: <InventoryListPage /> },
-      { path: "inventory/new", element: <ProductFormPage /> },
-      { path: "inventory/:id/edit", element: <ProductFormPage /> },
       { path: "tracking", element: <TrackingProductsPage /> },
       { path: "notifications", element: <NotificationsPage /> },
       { path: "sales", element: <SalesListPage /> },
       { path: "pos", element: <PosPage /> },
-      { path: "sales/new", element: <SaleFormPage /> },
+      {
+        // Legacy route: the advanced sale form was merged into the POS. The
+        // query (?patient=&prescription=) is kept so the prefill still works.
+        path: "sales/new",
+        loader: ({ request }) => redirect(`/pos${new URL(request.url).search}`),
+      },
       { path: "sales/:id", element: <SaleDetailPage /> },
       { path: "jobs", element: <JobsPage /> },
+      { path: "jobs/:id", element: <JobDetailPage /> },
       { path: "appointments", element: <AppointmentsPage /> },
       { path: "insurance", element: <InsurancePage /> },
       { path: "suppliers", element: <SuppliersPage /> },
-      { path: "reports", element: <ReportsPage /> },
-      { path: "settings", element: <SettingsPage /> },
-      { path: "settings/attributes", element: <AttributeTemplatesPage /> },
-      { path: "settings/colors", element: <ColorsManagerPage /> },
-      { path: "settings/receipt", element: <ReceiptDesignerPage /> },
+      // Manager-gated sections, behind the shop password when one is set. A
+      // pathless layout route, so the gate renders in place inside <Layout>: the
+      // URL never changes, a deep link survives the unlock, and the hash
+      // router's history is untouched. Wrapping each element individually would
+      // repeat the guard eight times; a redirect would strand the Back button.
+      {
+        element: <RequireUnlock />,
+        children: [
+          { path: "inventory", element: <InventoryListPage /> },
+          { path: "inventory/new", element: <ProductFormPage /> },
+          { path: "inventory/:id/edit", element: <ProductFormPage /> },
+          { path: "reports", element: <ReportsPage /> },
+          { path: "settings", element: <SettingsPage /> },
+          { path: "settings/attributes", element: <AttributeTemplatesPage /> },
+          { path: "settings/colors", element: <ColorsManagerPage /> },
+          { path: "settings/receipt", element: <ReceiptDesignerPage /> },
+        ],
+      },
       // Unknown routes keep the app chrome and show a branded 404.
       { path: "*", element: <NotFoundPage /> },
     ],
@@ -135,11 +151,6 @@ const router = createHashRouter([
   {
     path: "/patients/:id/statement/print",
     element: <PatientStatementPrintPage />,
-    errorElement: <RouteErrorPage />,
-  },
-  {
-    path: "/label/print",
-    element: <LabelPrintPage />,
     errorElement: <RouteErrorPage />,
   },
 ]);
