@@ -1,5 +1,12 @@
 import { getDb, unwrap } from "@/lib/db";
 import { commands } from "@/lib/bindings";
+import {
+  getCogs,
+  getCollected,
+  getPeriodDebt,
+  getRevenue,
+  type Period,
+} from "@/db/metrics";
 import type { DiscountType, SaleItem, SaleWithPatient } from "@/types";
 
 // All money values below are integer **centimes**. `discount_value` is centimes when
@@ -34,28 +41,9 @@ export interface SaleListFilters {
   to?: string | null; // inclusive date (YYYY-MM-DD)
 }
 
-function lineTotal(item: SaleItemInput): number {
-  return Math.max(0, item.unit_price * item.quantity - item.item_discount);
-}
-
-/**
- * Computes subtotal and total (after the overall discount), all in integer centimes.
- * For a percentage discount, `discountValue` is basis points (1500 = 15.00%), so the
- * discount is `subtotal * bp / 10000`, rounded to whole centimes.
- */
-export function computeTotals(
-  items: SaleItemInput[],
-  discountType: DiscountType,
-  discountValue: number,
-) {
-  const subtotal = items.reduce((sum, it) => sum + lineTotal(it), 0);
-  const discountAmount =
-    discountType === "percent"
-      ? Math.round((subtotal * discountValue) / 10000)
-      : discountValue;
-  const total = Math.max(0, subtotal - discountAmount);
-  return { subtotal, total };
-}
+// The pure money math lives in `@/lib/sale-math` so it can be tested without
+// pulling in the Tauri SQL plugin. Re-exported here for existing call sites.
+export { computeTotals, lineTotal } from "@/lib/sale-math";
 
 /**
  * Creates a sale atomically via the Rust `create_sale` command: it recomputes the
@@ -146,20 +134,28 @@ export async function listSaleItemSummaries(
 // All money fields are integer centimes.
 export interface SalesListStats {
   salesCount: number; // non-void invoices in the filtered set
-  revenue: number; // billed goods total (TTC)
-  collected: number; // cash actually received on those invoices
-  netProfit: number; // revenue minus COGS snapshots
+  revenue: number; // accrual revenue TTC, net of credit notes
+  collected: number; // cash received in the period
+  netProfit: number; // gross margin: revenue HT minus COGS
   itemsSold: number; // units across all lines
   discounts: number; // line discounts + overall invoice discounts
   refunds: number; // credit notes issued (avoirs)
-  outstanding: number; // balances still owed
+  outstanding: number; // still unpaid at period end from these invoices
   pendingCount: number; // invoices with a balance > 0
 }
 
 /**
- * KPI aggregates for the sales list header, honoring the same filters as the list.
- * Void invoices are excluded everywhere. Refunds are credit notes counted on their
- * own creation date (same convention as the reports revenue queries).
+ * KPI aggregates for the sales list header, honouring the same filters as the list.
+ *
+ * These delegate to `@/db/metrics` so the header shows the *same* numbers as the
+ * reports page for the same range. Previously this computed its own gross
+ * revenue while the reports page netted off credit notes, so the two screens
+ * disagreed; and `collected` summed each invoice's lifetime `amount_paid`, which
+ * counted payments made outside the filtered range.
+ *
+ * A patient filter narrows the money as well as the rows — a header reporting
+ * the whole shop's takings next to one customer's invoices would be worse than
+ * the bug it replaced.
  */
 export async function getSalesListStats(
   filters: SaleListFilters = {},
@@ -168,70 +164,45 @@ export async function getSalesListStats(
   const { where, params } = saleFilterParts(filters);
   const saleClause = ["s.status <> 'void'", ...where].join(" AND ");
 
-  // Credit notes carry their own patient/date columns, so they get their own filter.
-  const cnWhere: string[] = [];
-  const cnParams: unknown[] = [];
-  if (filters.patientId) {
-    cnParams.push(filters.patientId);
-    cnWhere.push(`patient_id = $${cnParams.length}`);
-  }
-  if (filters.from) {
-    cnParams.push(filters.from);
-    // created_at is stored UTC; compare on the local day like the sales filter.
-    cnWhere.push(`date(created_at,'localtime') >= date($${cnParams.length})`);
-  }
-  if (filters.to) {
-    cnParams.push(filters.to);
-    cnWhere.push(`date(created_at,'localtime') <= date($${cnParams.length})`);
-  }
-  const cnClause = cnWhere.length ? `WHERE ${cnWhere.join(" AND ")}` : "";
+  const period: Period = {
+    from: filters.from || "0000-01-01",
+    to: filters.to || "9999-12-31",
+    patientId: filters.patientId ?? null,
+  };
 
-  const [saleRows, itemRows, cnRows] = await Promise.all([
-    db.select<
-      {
-        cnt: number;
-        revenue: number;
-        collected: number;
-        global_discounts: number;
-        outstanding: number;
-        pending_cnt: number;
-      }[]
-    >(
-      `SELECT COUNT(*) AS cnt,
-              COALESCE(SUM(s.total), 0) AS revenue,
-              COALESCE(SUM(s.amount_paid), 0) AS collected,
-              COALESCE(SUM(s.subtotal - s.total), 0) AS global_discounts,
-              COALESCE(SUM(CASE WHEN s.balance > 0 THEN s.balance ELSE 0 END), 0) AS outstanding,
-              COALESCE(SUM(CASE WHEN s.balance > 0 THEN 1 ELSE 0 END), 0) AS pending_cnt
-       FROM sales s WHERE ${saleClause}`,
-      params,
-    ),
-    db.select<{ items_sold: number; item_discounts: number; cogs: number }[]>(
+  const [revenue, collected, cogs, debt, itemRows, discountRows] = await Promise.all([
+    getRevenue(period),
+    getCollected(period),
+    getCogs(period),
+    getPeriodDebt(period),
+    db.select<{ items_sold: number; item_discounts: number }[]>(
       `SELECT COALESCE(SUM(si.quantity), 0) AS items_sold,
-              COALESCE(SUM(si.item_discount), 0) AS item_discounts,
-              COALESCE(SUM(si.unit_cost * si.quantity), 0) AS cogs
+              CAST(COALESCE(SUM(si.item_discount), 0) AS INTEGER) AS item_discounts
        FROM sale_items si JOIN sales s ON s.id = si.sale_id
        WHERE ${saleClause}`,
       params,
     ),
-    db.select<{ refunds: number }[]>(
-      `SELECT COALESCE(SUM(total), 0) AS refunds FROM credit_notes ${cnClause}`,
-      cnParams,
+    // Invoice-level discount is `subtotal - total`; summed over sales, not lines,
+    // so a multi-line invoice counts its discount once.
+    db.select<{ global_discounts: number }[]>(
+      `SELECT CAST(COALESCE(SUM(s.subtotal - s.total), 0) AS INTEGER) AS global_discounts
+       FROM sales s WHERE ${saleClause}`,
+      params,
     ),
   ]);
 
-  const s = saleRows[0];
   const it = itemRows[0];
   return {
-    salesCount: s?.cnt ?? 0,
-    revenue: s?.revenue ?? 0,
-    collected: s?.collected ?? 0,
-    netProfit: (s?.revenue ?? 0) - (it?.cogs ?? 0),
+    salesCount: revenue.salesCount,
+    revenue: revenue.ttc,
+    collected,
+    // Gross margin, on the same HT basis as the P&L, so the two agree.
+    netProfit: revenue.ht - cogs,
     itemsSold: it?.items_sold ?? 0,
-    discounts: (s?.global_discounts ?? 0) + (it?.item_discounts ?? 0),
-    refunds: cnRows[0]?.refunds ?? 0,
-    outstanding: s?.outstanding ?? 0,
-    pendingCount: s?.pending_cnt ?? 0,
+    discounts: (discountRows[0]?.global_discounts ?? 0) + (it?.item_discounts ?? 0),
+    refunds: revenue.refunds,
+    outstanding: debt.amount,
+    pendingCount: debt.count,
   };
 }
 

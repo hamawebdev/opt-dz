@@ -1,4 +1,9 @@
 import { getDb } from "@/lib/db";
+import {
+  LOW_STOCK_IDS,
+  getInventoryValuation,
+  type InventoryValuation,
+} from "@/db/metrics";
 import type { ItemType, Product, ProductCategory } from "@/types";
 
 export interface ProductInput {
@@ -150,65 +155,32 @@ export async function listProductsWithExpiry(): Promise<Product[]> {
   );
 }
 
-/** Stocked products at or below their minimum stock threshold (services + archived excluded). */
+/**
+ * Stocked products at or below their minimum stock threshold.
+ *
+ * Uses the shared {@link LOW_STOCK_IDS} definition so this list always contains
+ * exactly as many rows as the dashboard's low-stock count and the notifications
+ * badge. It previously compared `products.quantity` alone, which is not a sum of
+ * its variants — so a product whose variants were all empty never appeared here
+ * even though the dashboard was counting it.
+ */
 export async function listLowStock(): Promise<Product[]> {
   const db = await getDb();
   return db.select<Product[]>(
-    "SELECT * FROM products WHERE item_type = 'product' AND archived = 0 AND quantity <= min_stock ORDER BY quantity ASC, name COLLATE NOCASE",
+    `SELECT * FROM products
+      WHERE id IN (${LOW_STOCK_IDS})
+      ORDER BY quantity ASC, name COLLATE NOCASE`,
   );
-}
-
-/** Whole-inventory totals for the Stock page KPI cards (money in centimes). */
-export interface InventorySummary {
-  /** Active stocked products (services + archived excluded). */
-  productCount: number;
-  /** Units on hand across those products. */
-  totalUnits: number;
-  /** SUM(on-hand × purchase price) — money tied up in stock. */
-  totalCost: number;
-  /** SUM(on-hand × selling price) — value if everything sells at listed price. */
-  totalValue: number;
 }
 
 /**
- * KPI totals over the whole active inventory. Variant products count their
- * variants' on-hand — the parent row's `quantity` is NOT a variant sum (see
- * `effectiveStock` in catalog.ts) — with per-variant price overrides falling
- * back to the parent's prices. Negative on-hand (oversell) is clamped to 0 so
- * a data glitch can't subtract from the money totals.
+ * Whole-inventory totals for the Stock page KPI cards (money in centimes).
+ * Delegates to the canonical valuation in `@/db/metrics` so the stock page and
+ * any P&L/stock-investment figure can never disagree.
  */
-export async function getInventorySummary(): Promise<InventorySummary> {
-  const db = await getDb();
-  const rows = await db.select<InventorySummary[]>(
-    `WITH agg AS (
-       SELECT
-         (SELECT COUNT(*) FROM product_variants v
-           WHERE v.product_id = p.id AND v.archived = 0) AS vcount,
-         (SELECT COALESCE(SUM(MAX(v.quantity, 0)), 0) FROM product_variants v
-           WHERE v.product_id = p.id AND v.archived = 0) AS vunits,
-         (SELECT COALESCE(SUM(MAX(v.quantity, 0) * COALESCE(v.purchase_price, p.purchase_price)), 0)
-           FROM product_variants v
-           WHERE v.product_id = p.id AND v.archived = 0) AS vcost,
-         (SELECT COALESCE(SUM(MAX(v.quantity, 0) * COALESCE(v.selling_price, p.selling_price)), 0)
-           FROM product_variants v
-           WHERE v.product_id = p.id AND v.archived = 0) AS vvalue,
-         MAX(p.quantity, 0) AS punits,
-         p.purchase_price AS pcost,
-         p.selling_price AS pprice
-       FROM products p
-       WHERE p.archived = 0 AND p.item_type = 'product'
-     )
-     SELECT
-       COUNT(*) AS productCount,
-       COALESCE(SUM(CASE WHEN vcount > 0 THEN vunits ELSE punits END), 0) AS totalUnits,
-       COALESCE(SUM(CASE WHEN vcount > 0 THEN vcost ELSE punits * pcost END), 0) AS totalCost,
-       COALESCE(SUM(CASE WHEN vcount > 0 THEN vvalue ELSE punits * pprice END), 0) AS totalValue
-     FROM agg`,
-  );
-  return (
-    rows[0] ?? { productCount: 0, totalUnits: 0, totalCost: 0, totalValue: 0 }
-  );
-}
+export type InventorySummary = InventoryValuation;
+
+export const getInventorySummary = getInventoryValuation;
 
 export async function createProduct(input: ProductInput): Promise<number> {
   const db = await getDb();

@@ -220,15 +220,23 @@ export async function getPatientStatement(
   range?: { from?: string; to?: string },
 ): Promise<PatientStatement> {
   const db = await getDb();
-  const inRange = (col: string, params: unknown[]) => {
+  /**
+   * `utc` selects the right day predicate for the column being filtered:
+   * `paid_at` and `credit_notes.created_at` are stored UTC and need
+   * `'localtime'`, while `sale_date` is already a local date-only string.
+   * Omitting the modifier put payments in the statement a day out of step with
+   * the same payments on the reports page.
+   */
+  const inRange = (col: string, params: unknown[], utc: boolean) => {
+    const day = utc ? `date(${col}, 'localtime')` : `date(${col})`;
     let sql = "";
     if (range?.from) {
       params.push(range.from);
-      sql += ` AND date(${col}) >= $${params.length}`;
+      sql += ` AND ${day} >= date($${params.length})`;
     }
     if (range?.to) {
       params.push(range.to);
-      sql += ` AND date(${col}) <= $${params.length}`;
+      sql += ` AND ${day} <= date($${params.length})`;
     }
     return sql;
   };
@@ -238,7 +246,7 @@ export async function getPatientStatement(
     { date: string; ref: string | null; amount: number }[]
   >(
     `SELECT sale_date AS date, invoice_number AS ref, (total + timbre_amount) AS amount
-     FROM sales WHERE patient_id = $1 AND status <> 'void'${inRange("sale_date", sp)}`,
+     FROM sales WHERE patient_id = $1 AND status <> 'void'${inRange("sale_date", sp, false)}`,
     sp,
   );
   const pp: unknown[] = [id];
@@ -247,7 +255,7 @@ export async function getPatientStatement(
   >(
     `SELECT pm.paid_at AS date, s.invoice_number AS ref, pm.amount AS amount
      FROM payments pm JOIN sales s ON s.id = pm.sale_id
-     WHERE s.patient_id = $1${inRange("pm.paid_at", pp)}`,
+     WHERE s.patient_id = $1${inRange("pm.paid_at", pp, true)}`,
     pp,
   );
   const cp: unknown[] = [id];
@@ -256,7 +264,7 @@ export async function getPatientStatement(
   >(
     `SELECT s.sale_date AS date, s.invoice_number AS ref, c.covered_amount AS amount
      FROM claims c JOIN sales s ON s.id = c.sale_id
-     WHERE s.patient_id = $1 AND c.covered_amount > 0${inRange("s.sale_date", cp)}`,
+     WHERE s.patient_id = $1 AND c.covered_amount > 0${inRange("s.sale_date", cp, false)}`,
     cp,
   );
   const np: unknown[] = [id];
@@ -264,7 +272,7 @@ export async function getPatientStatement(
   // money and is neutral to the account balance (F4).
   const notes = await db.select<{ date: string; amount: number }[]>(
     `SELECT created_at AS date, total AS amount
-     FROM credit_notes WHERE patient_id = $1 AND method = 'balance'${inRange("created_at", np)}`,
+     FROM credit_notes WHERE patient_id = $1 AND method = 'balance'${inRange("created_at", np, true)}`,
     np,
   );
 

@@ -1,4 +1,5 @@
 import { getDb } from "@/lib/db";
+import { LOW_STOCK_IDS } from "@/db/metrics";
 import { listProductsWithExpiry } from "@/db/products";
 import { expiryStatus } from "@/lib/expiry";
 import { formatDate } from "@/lib/format";
@@ -49,21 +50,18 @@ export async function listNotifications(
   const db = await getDb();
   const out: AppNotification[] = [];
 
-  // Low/out stock, variant-aware: simple products use their own on-hand; variant
-  // products surface their lowest variant stock. Services and archived are excluded.
+  // Low/out stock. Which products qualify comes from the shared LOW_STOCK_IDS
+  // definition, so this badge, the dashboard count and the stock list always
+  // agree; the displayed quantity is the lowest live variant (or the product's
+  // own on-hand when it has no variants).
   const stock = await db.select<{ id: number; name: string; quantity: number }[]>(
-    `SELECT p.id AS id, p.name AS name, p.quantity AS quantity
+    `SELECT p.id AS id, p.name AS name,
+            COALESCE((SELECT MIN(v.quantity) FROM product_variants v
+                       WHERE v.product_id = p.id AND v.archived = 0),
+                     p.quantity) AS quantity
        FROM products p
-       WHERE p.item_type = 'product' AND p.archived = 0
-         AND NOT EXISTS (SELECT 1 FROM product_variants v WHERE v.product_id = p.id AND v.archived = 0)
-         AND p.quantity <= p.min_stock
-     UNION ALL
-     SELECT p.id AS id, p.name AS name, MIN(v.quantity) AS quantity
-       FROM product_variants v JOIN products p ON p.id = v.product_id
-       WHERE p.item_type = 'product' AND p.archived = 0 AND v.archived = 0
-         AND v.quantity <= v.min_stock
-       GROUP BY p.id, p.name
-     ORDER BY quantity ASC, name COLLATE NOCASE`,
+      WHERE p.id IN (${LOW_STOCK_IDS})
+      ORDER BY quantity ASC, name COLLATE NOCASE`,
   );
   for (const p of stock) {
     if (p.quantity <= 0) {

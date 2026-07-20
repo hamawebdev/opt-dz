@@ -14,7 +14,7 @@ import {
 export function useDashboardStats() {
   return useQuery({
     queryKey: ["dashboard", "stats"],
-    queryFn: getDashboardStats,
+    queryFn: () => getDashboardStats(),
   });
 }
 
@@ -35,7 +35,7 @@ export function usePendingPayments(limit = 6) {
 export function useOutstandingBalances() {
   return useQuery({
     queryKey: ["reports", "outstanding"],
-    queryFn: getOutstandingBalances,
+    queryFn: () => getOutstandingBalances(),
   });
 }
 

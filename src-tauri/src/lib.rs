@@ -198,23 +198,14 @@ async fn setting_str(
         .unwrap_or_else(|| default.to_string()))
 }
 
-/// Creates a sale, its line items, stock movements and an optional initial payment
-/// in a single transaction. Totals are recomputed server-side (the client cannot
-/// tamper with them) and stock availability is validated before anything is written.
-#[tauri::command]
-#[specta::specta]
-async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, String> {
+/// Transactional core of `create_sale` — see that command for behaviour.
+async fn create_sale_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    input: CreateSaleInput,
+) -> Result<i64, String> {
     if input.items.is_empty() {
         return Err("A sale needs at least one item".into());
     }
-    let pool = db_pool(&app).await?;
-    // BEGIN IMMEDIATE (here and in every write command) takes the write slot up
-    // front, so under WAL a contended writer waits on the busy timeout instead of
-    // failing its later read→write lock upgrade with an unretried SQLITE_BUSY.
-    let mut tx = pool
-        .begin_with("BEGIN IMMEDIATE")
-        .await
-        .map_err(|e| e.to_string())?;
 
     // Validate every line up front (the Rust command is the real authority; the UI
     // floor in pos-totals.ts is only a convenience). Rejects negative-quantity lines
@@ -242,7 +233,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
     // TVA is extracted from the tax-inclusive (TTC) total. Droit de timbre is applied
     // by sync_sale_balance once a cash payment exists; here we only compute a
     // provisional value to cap the optional initial payment.
-    let tax_rate = setting_i64(&mut tx, "tva_rate", 0).await?;
+    let tax_rate = setting_i64(&mut *tx, "tva_rate", 0).await?;
     let tax_amount = if tax_rate > 0 && total > 0 {
         let net_ht = ((total as i128 * 10_000) / (10_000 + tax_rate as i128)) as i64;
         total - net_ht
@@ -250,7 +241,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
         0
     };
     let provisional_timbre = if input.payment_method.as_deref() == Some("cash") {
-        compute_timbre(&mut tx, total).await?
+        compute_timbre(&mut *tx, total).await?
     } else {
         0
     };
@@ -269,16 +260,16 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
     let cash_paid = input.initial_payment.unwrap_or(0).clamp(0, patient_due);
 
     // Allocate a continuous, gap-free invoice number from the running counter.
-    let next = setting_i64(&mut tx, "invoice_next", 1).await?;
-    let prefix = setting_str(&mut tx, "invoice_prefix", "").await?;
-    let padding = setting_i64(&mut tx, "invoice_padding", 6).await?.max(1) as usize;
+    let next = setting_i64(&mut *tx, "invoice_next", 1).await?;
+    let prefix = setting_str(&mut *tx, "invoice_prefix", "").await?;
+    let padding = setting_i64(&mut *tx, "invoice_padding", 6).await?.max(1) as usize;
     let invoice_number = format!("{}{:0>width$}", prefix, next, width = padding);
     sqlx::query(
         "INSERT INTO settings (key, value) VALUES ('invoice_next', ?1)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     )
     .bind((next + 1).to_string())
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -300,7 +291,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
             }
             let item_type: Option<String> = sqlx::query("SELECT item_type FROM products WHERE id = ?1")
                 .bind(pid)
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut **tx)
                 .await
                 .map_err(|e| e.to_string())?
                 .map(|r| r.try_get::<String, _>("item_type").unwrap_or_default());
@@ -317,7 +308,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
     for (vid, need) in &need_variant {
         let row = sqlx::query("SELECT quantity FROM product_variants WHERE id = ?1")
             .bind(vid)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|e| e.to_string())?;
         let Some(row) = row else {
@@ -331,7 +322,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
     for (pid, need) in &need_product {
         let row = sqlx::query("SELECT quantity, name FROM products WHERE id = ?1")
             .bind(pid)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|e| e.to_string())?;
         let Some(row) = row else {
@@ -344,6 +335,17 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
         }
     }
 
+    // `sale_date` must hold the till's LOCAL calendar day: every report filters
+    // on `date(sale_date)` without a 'localtime' modifier, because the POS
+    // already sends a local date. Trim any time component a caller appended, so
+    // one client sending "2026-03-10T23:30:00" can never shift an invoice into
+    // the wrong reporting day.
+    let sale_date = input
+        .sale_date
+        .get(..10)
+        .unwrap_or(input.sale_date.as_str())
+        .to_string();
+
     // Insert with placeholder money columns; sync_sale_balance (below) computes the
     // authoritative timbre/amount_paid/balance/status once items + payment are in.
     let sale_id: i64 = sqlx::query(
@@ -354,7 +356,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
     )
     .bind(input.patient_id)
     .bind(input.prescription_id)
-    .bind(&input.sale_date)
+    .bind(&sale_date)
     .bind(subtotal)
     .bind(&input.discount_type)
     .bind(input.discount_value)
@@ -363,7 +365,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
     .bind(tax_amount)
     .bind(&invoice_number)
     .bind(&input.notes)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(|e| e.to_string())?
     .last_insert_rowid();
@@ -376,7 +378,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
         .bind(sale_id)
         .bind(payer_id)
         .bind(covered)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|e| e.to_string())?;
     }
@@ -389,7 +391,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
          ) AS has_lens",
     )
     .bind(sale_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
     .map_err(|e| e.to_string())?
     .try_get::<i64, _>("has_lens")
@@ -403,14 +405,14 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
         .bind(sale_id)
         .bind(input.patient_id)
         .bind(input.prescription_id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|e| e.to_string())?;
         // Creation event so the job's timeline starts at 'ordered' (note stays NULL;
         // the UI supplies the label, so nothing language-specific is stored).
         sqlx::query("INSERT INTO job_events (job_id, status, note) VALUES (?1, 'ordered', NULL)")
             .bind(job.last_insert_rowid())
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|e| e.to_string())?;
     }
@@ -424,7 +426,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
                  FROM product_variants v JOIN products p ON p.id = v.product_id WHERE v.id = ?1",
             )
             .bind(vid)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|e| e.to_string())?
             .and_then(|r| r.try_get::<f64, _>("c").ok())
@@ -433,7 +435,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
         } else if let Some(pid) = it.product_id {
             sqlx::query("SELECT purchase_price AS c FROM products WHERE id = ?1")
                 .bind(pid)
-                .fetch_optional(&mut *tx)
+                .fetch_optional(&mut **tx)
                 .await
                 .map_err(|e| e.to_string())?
                 .and_then(|r| r.try_get::<f64, _>("c").ok())
@@ -456,7 +458,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
         .bind(it.item_discount)
         .bind(line_total(it))
         .bind(unit_cost)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -467,7 +469,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
             )
             .bind(it.quantity)
             .bind(vid)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|e| e.to_string())?;
             sqlx::query(
@@ -478,7 +480,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
             .bind(vid)
             .bind(-it.quantity)
             .bind(format!("Sale #{sale_id}"))
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|e| e.to_string())?;
         } else if let Some(pid) = it.product_id {
@@ -489,7 +491,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
                 )
                 .bind(it.quantity)
                 .bind(pid)
-                .execute(&mut *tx)
+                .execute(&mut **tx)
                 .await
                 .map_err(|e| e.to_string())?;
                 sqlx::query(
@@ -499,7 +501,7 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
                 .bind(pid)
                 .bind(-it.quantity)
                 .bind(format!("Sale #{sale_id}"))
-                .execute(&mut *tx)
+                .execute(&mut **tx)
                 .await
                 .map_err(|e| e.to_string())?;
             }
@@ -514,21 +516,38 @@ async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, Stri
         .bind(sale_id)
         .bind(cash_paid)
         .bind(&input.payment_method)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|e| e.to_string())?;
     }
     // Reconcile timbre/amount_paid/balance/status from what was just written.
-    sync_sale_balance(&mut tx, sale_id).await?;
-    tx.commit().await.map_err(|e| e.to_string())?;
+    sync_sale_balance(&mut *tx, sale_id).await?;
     Ok(sale_id)
 }
 
-/// Records a payment against a sale and re-syncs its balance/status atomically.
+/// Creates a sale, its line items, stock movements and an optional initial payment
+/// in a single transaction. Totals are recomputed server-side (the client cannot
+/// tamper with them) and stock availability is validated before anything is written.
 #[tauri::command]
 #[specta::specta]
-async fn record_payment(
-    app: AppHandle,
+async fn create_sale(app: AppHandle, input: CreateSaleInput) -> Result<i64, String> {
+    let pool = db_pool(&app).await?;
+    // BEGIN IMMEDIATE takes the write slot up front, so under WAL a contended
+    // writer waits on the busy timeout instead of failing a lock upgrade.
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
+    // `?` here drops `tx` un-committed, which rolls back (sqlx `Drop`).
+    let out = create_sale_tx(&mut tx, input).await?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+
+/// Transactional core of `record_payment` — see that command for behaviour.
+async fn record_payment_tx(
+    tx: &mut Transaction<'_, Sqlite>,
     sale_id: i64,
     amount: i64,
     method: Option<String>,
@@ -537,17 +556,12 @@ async fn record_payment(
     if amount <= 0 {
         return Err("Payment amount must be greater than 0".into());
     }
-    let pool = db_pool(&app).await?;
-    let mut tx = pool
-        .begin_with("BEGIN IMMEDIATE")
-        .await
-        .map_err(|e| e.to_string())?;
 
     // Reject overpayment (B4). The ceiling is the most the patient could owe — goods
     // plus the full possible timbre, minus insurer coverage and any balance credits.
     let row = sqlx::query("SELECT total, status FROM sales WHERE id = ?1")
         .bind(sale_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(|e| e.to_string())?
         .ok_or("Sale not found")?;
@@ -556,12 +570,12 @@ async fn record_payment(
         return Err("This sale has been voided".into());
     }
     let total = row.try_get::<f64, _>("total").map_err(|e| e.to_string())?.round() as i64;
-    let max_timbre = compute_timbre(&mut tx, total).await?;
+    let max_timbre = compute_timbre(&mut *tx, total).await?;
     let covered: i64 = sqlx::query(
         "SELECT COALESCE((SELECT covered_amount FROM claims WHERE sale_id = ?1), 0) AS c",
     )
     .bind(sale_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
     .map_err(|e| e.to_string())?
     .try_get::<i64, _>("c")
@@ -570,14 +584,14 @@ async fn record_payment(
         "SELECT COALESCE(SUM(total), 0) AS c FROM credit_notes WHERE sale_id = ?1 AND method = 'balance'",
     )
     .bind(sale_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await
     .map_err(|e| e.to_string())?
     .try_get::<i64, _>("c")
     .map_err(|e| e.to_string())?;
     let already = sqlx::query("SELECT COALESCE(SUM(amount), 0.0) AS p FROM payments WHERE sale_id = ?1")
         .bind(sale_id)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await
         .map_err(|e| e.to_string())?
         .try_get::<f64, _>("p")
@@ -596,11 +610,49 @@ async fn record_payment(
         .bind(amount)
         .bind(&method)
         .bind(&note)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|e| e.to_string())?;
-    sync_sale_balance(&mut tx, sale_id).await?;
+    sync_sale_balance(&mut *tx, sale_id).await?;
+    Ok(())
+}
+
+/// Records a payment against a sale and re-syncs its balance/status atomically.
+#[tauri::command]
+#[specta::specta]
+async fn record_payment(
+    app: AppHandle,
+    sale_id: i64,
+    amount: i64,
+    method: Option<String>,
+    note: Option<String>,
+) -> Result<(), String> {
+    let pool = db_pool(&app).await?;
+    // BEGIN IMMEDIATE takes the write slot up front, so under WAL a contended
+    // writer waits on the busy timeout instead of failing a lock upgrade.
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
+    // `?` here drops `tx` un-committed, which rolls back (sqlx `Drop`).
+    let out = record_payment_tx(&mut tx, sale_id, amount, method, note).await?;
     tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+
+/// Transactional core of `delete_payment` — see that command for behaviour.
+async fn delete_payment_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    payment_id: i64,
+    sale_id: i64,
+) -> Result<(), String> {
+    sqlx::query("DELETE FROM payments WHERE id = ?1")
+        .bind(payment_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    sync_sale_balance(&mut *tx, sale_id).await?;
     Ok(())
 }
 
@@ -609,17 +661,129 @@ async fn record_payment(
 #[specta::specta]
 async fn delete_payment(app: AppHandle, payment_id: i64, sale_id: i64) -> Result<(), String> {
     let pool = db_pool(&app).await?;
+    // BEGIN IMMEDIATE takes the write slot up front, so under WAL a contended
+    // writer waits on the busy timeout instead of failing a lock upgrade.
     let mut tx = pool
         .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|e| e.to_string())?;
-    sqlx::query("DELETE FROM payments WHERE id = ?1")
-        .bind(payment_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
-    sync_sale_balance(&mut tx, sale_id).await?;
+    // `?` here drops `tx` un-committed, which rolls back (sqlx `Drop`).
+    let out = delete_payment_tx(&mut tx, payment_id, sale_id).await?;
     tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+
+/// Transactional core of `void_sale` — see that command for behaviour.
+async fn void_sale_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    sale_id: i64,
+    reason: Option<String>,
+) -> Result<(), String> {
+
+    let status: String = sqlx::query("SELECT status FROM sales WHERE id = ?1")
+        .bind(sale_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or("Sale not found")?
+        .try_get("status")
+        .map_err(|e| e.to_string())?;
+    if status == "void" {
+        return Err("This sale is already void".into());
+    }
+    let cn_count: i64 = sqlx::query("SELECT COUNT(*) AS c FROM credit_notes WHERE sale_id = ?1")
+        .bind(sale_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|e| e.to_string())?
+        .try_get("c")
+        .map_err(|e| e.to_string())?;
+    if cn_count > 0 {
+        return Err("This sale has returns — undo or refund those before voiding".into());
+    }
+
+    // Restore stock for each line (logging reversing adjustment movements).
+    let items =
+        sqlx::query("SELECT product_id, variant_id, quantity FROM sale_items WHERE sale_id = ?1")
+            .bind(sale_id)
+            .fetch_all(&mut **tx)
+            .await
+            .map_err(|e| e.to_string())?;
+    for row in &items {
+        let pid: Option<i64> = row.try_get("product_id").map_err(|e| e.to_string())?;
+        let vid: Option<i64> = row.try_get("variant_id").map_err(|e| e.to_string())?;
+        let qty: i64 = row.try_get("quantity").map_err(|e| e.to_string())?;
+        if let Some(vid) = vid {
+            sqlx::query(
+                "UPDATE product_variants SET quantity = quantity + ?1, updated_at = datetime('now') WHERE id = ?2",
+            )
+            .bind(qty)
+            .bind(vid)
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| e.to_string())?;
+            sqlx::query(
+                "INSERT INTO stock_movements (product_id, variant_id, type, quantity_change, note)
+                 VALUES (?1, ?2, 'adjustment', ?3, ?4)",
+            )
+            .bind(pid)
+            .bind(vid)
+            .bind(qty)
+            .bind(format!("Voided sale #{sale_id}"))
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        } else if let Some(pid) = pid {
+            sqlx::query(
+                "UPDATE products SET quantity = quantity + ?1, updated_at = datetime('now') WHERE id = ?2",
+            )
+            .bind(qty)
+            .bind(pid)
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| e.to_string())?;
+            sqlx::query(
+                "INSERT INTO stock_movements (product_id, type, quantity_change, note)
+                 VALUES (?1, 'adjustment', ?2, ?3)",
+            )
+            .bind(pid)
+            .bind(qty)
+            .bind(format!("Voided sale #{sale_id}"))
+            .execute(&mut **tx)
+            .await
+            .map_err(|e| e.to_string())?;
+        }
+    }
+
+    // Cancel any insurer claim — a voided invoice is no longer claimable.
+    sqlx::query(
+        "UPDATE claims SET covered_amount = 0, status = 'rejected' WHERE sale_id = ?1",
+    )
+    .bind(sale_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Annotate any linked lab job so it isn't silently orphaned.
+    sqlx::query(
+        "UPDATE jobs SET notes = TRIM(COALESCE(notes, '') || ' [Sale voided]'), updated_at = datetime('now')
+         WHERE sale_id = ?1",
+    )
+    .bind(sale_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
+    sqlx::query(
+        "UPDATE sales SET status = 'void', voided_at = datetime('now'), void_reason = ?1, balance = 0 WHERE id = ?2",
+    )
+    .bind(&reason)
+    .bind(sale_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
@@ -633,117 +797,18 @@ async fn delete_payment(app: AppHandle, payment_id: i64, sale_id: i64) -> Result
 #[specta::specta]
 async fn void_sale(app: AppHandle, sale_id: i64, reason: Option<String>) -> Result<(), String> {
     let pool = db_pool(&app).await?;
+    // BEGIN IMMEDIATE takes the write slot up front, so under WAL a contended
+    // writer waits on the busy timeout instead of failing a lock upgrade.
     let mut tx = pool
         .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|e| e.to_string())?;
-
-    let status: String = sqlx::query("SELECT status FROM sales WHERE id = ?1")
-        .bind(sale_id)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?
-        .ok_or("Sale not found")?
-        .try_get("status")
-        .map_err(|e| e.to_string())?;
-    if status == "void" {
-        return Err("This sale is already void".into());
-    }
-    let cn_count: i64 = sqlx::query("SELECT COUNT(*) AS c FROM credit_notes WHERE sale_id = ?1")
-        .bind(sale_id)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?
-        .try_get("c")
-        .map_err(|e| e.to_string())?;
-    if cn_count > 0 {
-        return Err("This sale has returns — undo or refund those before voiding".into());
-    }
-
-    // Restore stock for each line (logging reversing adjustment movements).
-    let items =
-        sqlx::query("SELECT product_id, variant_id, quantity FROM sale_items WHERE sale_id = ?1")
-            .bind(sale_id)
-            .fetch_all(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
-    for row in &items {
-        let pid: Option<i64> = row.try_get("product_id").map_err(|e| e.to_string())?;
-        let vid: Option<i64> = row.try_get("variant_id").map_err(|e| e.to_string())?;
-        let qty: i64 = row.try_get("quantity").map_err(|e| e.to_string())?;
-        if let Some(vid) = vid {
-            sqlx::query(
-                "UPDATE product_variants SET quantity = quantity + ?1, updated_at = datetime('now') WHERE id = ?2",
-            )
-            .bind(qty)
-            .bind(vid)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
-            sqlx::query(
-                "INSERT INTO stock_movements (product_id, variant_id, type, quantity_change, note)
-                 VALUES (?1, ?2, 'adjustment', ?3, ?4)",
-            )
-            .bind(pid)
-            .bind(vid)
-            .bind(qty)
-            .bind(format!("Voided sale #{sale_id}"))
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
-        } else if let Some(pid) = pid {
-            sqlx::query(
-                "UPDATE products SET quantity = quantity + ?1, updated_at = datetime('now') WHERE id = ?2",
-            )
-            .bind(qty)
-            .bind(pid)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
-            sqlx::query(
-                "INSERT INTO stock_movements (product_id, type, quantity_change, note)
-                 VALUES (?1, 'adjustment', ?2, ?3)",
-            )
-            .bind(pid)
-            .bind(qty)
-            .bind(format!("Voided sale #{sale_id}"))
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
-        }
-    }
-
-    // Cancel any insurer claim — a voided invoice is no longer claimable.
-    sqlx::query(
-        "UPDATE claims SET covered_amount = 0, status = 'rejected' WHERE sale_id = ?1",
-    )
-    .bind(sale_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    // Annotate any linked lab job so it isn't silently orphaned.
-    sqlx::query(
-        "UPDATE jobs SET notes = TRIM(COALESCE(notes, '') || ' [Sale voided]'), updated_at = datetime('now')
-         WHERE sale_id = ?1",
-    )
-    .bind(sale_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
-
-    sqlx::query(
-        "UPDATE sales SET status = 'void', voided_at = datetime('now'), void_reason = ?1, balance = 0 WHERE id = ?2",
-    )
-    .bind(&reason)
-    .bind(sale_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
-
+    // `?` here drops `tx` un-committed, which rolls back (sqlx `Drop`).
+    let out = void_sale_tx(&mut tx, sale_id, reason).await?;
     tx.commit().await.map_err(|e| e.to_string())?;
-    Ok(())
+    Ok(out)
 }
+
 
 #[derive(Debug, Deserialize, Type)]
 pub struct ReturnItemInput {
@@ -760,28 +825,17 @@ pub struct CreateReturnInput {
     pub items: Vec<ReturnItemInput>,
 }
 
-/// Processes a return as a numbered credit note (avoir): validates returnable quantities,
-/// restocks the goods, and credits the customer the **net amount actually borne** for the
-/// returned lines — i.e. their share after the global discount and insurer coverage
-/// (`line_total × (total − covered) / subtotal`), not the raw line price. A 'refund' is
-/// capped at what the customer has paid (use 'balance' for the unpaid portion); a 'balance'
-/// credit reduces the sale's outstanding balance via sync_sale_balance. The original
-/// invoice is left intact. Insurer-claim reconciliation for returned goods is handled
-/// separately on the claims screen. Returns the new credit-note id.
-#[tauri::command]
-#[specta::specta]
-async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, String> {
+/// Transactional core of `create_return` — see that command for behaviour.
+async fn create_return_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    input: CreateReturnInput,
+) -> Result<i64, String> {
     if input.items.is_empty() {
         return Err("Select at least one item to return".into());
     }
     if input.method != "refund" && input.method != "balance" {
         return Err("Invalid return method".into());
     }
-    let pool = db_pool(&app).await?;
-    let mut tx = pool
-        .begin_with("BEGIN IMMEDIATE")
-        .await
-        .map_err(|e| e.to_string())?;
 
     // Load the sale's net basis: a walk-in has a NULL patient; a void sale can't be returned.
     let sale = sqlx::query(
@@ -790,7 +844,7 @@ async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, 
          FROM sales WHERE id = ?1",
     )
     .bind(input.sale_id)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await
     .map_err(|e| e.to_string())?
     .ok_or("Sale not found")?;
@@ -806,8 +860,8 @@ async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, 
     // Net the patient bears across all goods, as a fraction of subtotal: (total − covered)/subtotal.
     let net_basis = (sale_total - covered).max(0);
 
-    // (sale_item_id, product_id, description, qty, value)
-    let mut collected: Vec<(i64, Option<i64>, String, i64, i64)> = Vec::new();
+    // (sale_item_id, product_id, variant_id, description, qty, value)
+    let mut collected: Vec<(i64, Option<i64>, Option<i64>, String, i64, i64)> = Vec::new();
     let mut total: i64 = 0;
     for ri in &input.items {
         if ri.quantity <= 0 {
@@ -819,7 +873,7 @@ async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, 
         )
         .bind(ri.sale_item_id)
         .bind(input.sale_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(|e| e.to_string())?;
         let Some(row) = row else {
@@ -836,7 +890,7 @@ async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, 
             "SELECT COALESCE(SUM(quantity), 0) AS q FROM credit_note_items WHERE sale_item_id = ?1",
         )
         .bind(ri.sale_item_id)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await
         .map_err(|e| e.to_string())?
         .try_get::<i64, _>("q")
@@ -868,7 +922,7 @@ async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, 
             )
             .bind(ri.quantity)
             .bind(vid)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|e| e.to_string())?;
             sqlx::query(
@@ -879,7 +933,7 @@ async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, 
             .bind(vid)
             .bind(ri.quantity)
             .bind(format!("Return — sale #{}", input.sale_id))
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|e| e.to_string())?;
         } else if let Some(pid) = product_id {
@@ -888,7 +942,7 @@ async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, 
             )
             .bind(ri.quantity)
             .bind(pid)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|e| e.to_string())?;
             sqlx::query(
@@ -898,11 +952,21 @@ async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, 
             .bind(pid)
             .bind(ri.quantity)
             .bind(format!("Return — sale #{}", input.sale_id))
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|e| e.to_string())?;
         }
-        collected.push((ri.sale_item_id, product_id, description, ri.quantity, value));
+        // variant_id is carried through so the credit note records *which* variant
+        // came back — the column exists (v11) and variant-level return reporting
+        // reads nothing without it.
+        collected.push((
+            ri.sale_item_id,
+            product_id,
+            variant_id,
+            description,
+            ri.quantity,
+            value,
+        ));
     }
 
     if collected.is_empty() {
@@ -916,7 +980,7 @@ async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, 
             "SELECT COALESCE(SUM(total), 0) AS r FROM credit_notes WHERE sale_id = ?1 AND method = 'refund'",
         )
         .bind(input.sale_id)
-        .fetch_one(&mut *tx)
+        .fetch_one(&mut **tx)
         .await
         .map_err(|e| e.to_string())?
         .try_get::<i64, _>("r")
@@ -930,16 +994,16 @@ async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, 
     }
 
     // Allocate a sequential avoir (credit-note) number, mirroring invoice numbering.
-    let cn_next = setting_i64(&mut tx, "credit_note_next", 1).await?;
-    let cn_prefix = setting_str(&mut tx, "credit_note_prefix", "A").await?;
-    let cn_padding = setting_i64(&mut tx, "credit_note_padding", 6).await?.max(1) as usize;
+    let cn_next = setting_i64(&mut *tx, "credit_note_next", 1).await?;
+    let cn_prefix = setting_str(&mut *tx, "credit_note_prefix", "A").await?;
+    let cn_padding = setting_i64(&mut *tx, "credit_note_padding", 6).await?.max(1) as usize;
     let cn_number = format!("{}{:0>width$}", cn_prefix, cn_next, width = cn_padding);
     sqlx::query(
         "INSERT INTO settings (key, value) VALUES ('credit_note_next', ?1)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     )
     .bind((cn_next + 1).to_string())
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(|e| e.to_string())?;
 
@@ -953,44 +1017,65 @@ async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, 
     .bind(&input.method)
     .bind(&cn_number)
     .bind(&input.notes)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(|e| e.to_string())?
     .last_insert_rowid();
 
-    for (sale_item_id, product_id, description, qty, value) in &collected {
+    for (sale_item_id, product_id, variant_id, description, qty, value) in &collected {
         sqlx::query(
             "INSERT INTO credit_note_items
-                (credit_note_id, sale_item_id, product_id, description, quantity, line_total)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                (credit_note_id, sale_item_id, product_id, variant_id, description, quantity, line_total)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         )
         .bind(cn_id)
         .bind(sale_item_id)
         .bind(product_id)
+        .bind(variant_id)
         .bind(description)
         .bind(qty)
         .bind(value)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|e| e.to_string())?;
     }
 
     // A 'balance' credit reduces what the customer still owes on the invoice.
     if input.method == "balance" {
-        sync_sale_balance(&mut tx, input.sale_id).await?;
+        sync_sale_balance(&mut *tx, input.sale_id).await?;
     }
 
-    tx.commit().await.map_err(|e| e.to_string())?;
     Ok(cn_id)
 }
 
-/// Updates an insurance claim's status. The 'rejected' path re-bills the patient: the
-/// previously-covered amount is zeroed and the sale's balance re-synced, so a rejected
-/// claim no longer silently disappears from what the patient owes (audit finding E1).
+/// Processes a return as a numbered credit note (avoir): validates returnable quantities,
+/// restocks the goods, and credits the customer the **net amount actually borne** for the
+/// returned lines — i.e. their share after the global discount and insurer coverage
+/// (`line_total × (total − covered) / subtotal`), not the raw line price. A 'refund' is
+/// capped at what the customer has paid (use 'balance' for the unpaid portion); a 'balance'
+/// credit reduces the sale's outstanding balance via sync_sale_balance. The original
+/// invoice is left intact. Insurer-claim reconciliation for returned goods is handled
+/// separately on the claims screen. Returns the new credit-note id.
 #[tauri::command]
 #[specta::specta]
-async fn set_claim_status(
-    app: AppHandle,
+async fn create_return(app: AppHandle, input: CreateReturnInput) -> Result<i64, String> {
+    let pool = db_pool(&app).await?;
+    // BEGIN IMMEDIATE takes the write slot up front, so under WAL a contended
+    // writer waits on the busy timeout instead of failing a lock upgrade.
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
+    // `?` here drops `tx` un-committed, which rolls back (sqlx `Drop`).
+    let out = create_return_tx(&mut tx, input).await?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+
+/// Transactional core of `set_claim_status` — see that command for behaviour.
+async fn set_claim_status_tx(
+    tx: &mut Transaction<'_, Sqlite>,
     claim_id: i64,
     status: String,
     claim_ref: Option<String>,
@@ -999,15 +1084,10 @@ async fn set_claim_status(
     if !ALLOWED.contains(&status.as_str()) {
         return Err("Invalid claim status".into());
     }
-    let pool = db_pool(&app).await?;
-    let mut tx = pool
-        .begin_with("BEGIN IMMEDIATE")
-        .await
-        .map_err(|e| e.to_string())?;
 
     let sale_id: i64 = sqlx::query("SELECT sale_id FROM claims WHERE id = ?1")
         .bind(claim_id)
-        .fetch_optional(&mut *tx)
+        .fetch_optional(&mut **tx)
         .await
         .map_err(|e| e.to_string())?
         .ok_or("Claim not found")?
@@ -1027,38 +1107,56 @@ async fn set_claim_status(
     .bind(&status)
     .bind(&claim_ref)
     .bind(claim_id)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(|e| e.to_string())?;
 
     // Rejection zeroes coverage → the patient is re-billed; re-sync the sale balance.
     if status == "rejected" {
-        sync_sale_balance(&mut tx, sale_id).await?;
+        sync_sale_balance(&mut *tx, sale_id).await?;
     }
-    tx.commit().await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
-/// Merges a duplicate patient into a surviving one: re-points all of the duplicate's
-/// records (sales, prescriptions, jobs, appointments, credit notes, activity, held
-/// carts, custom fields) onto `keep_id`, then deletes the now-empty duplicate. Custom
-/// fields that would collide (same attribute on both) keep the survivor's value.
+/// Updates an insurance claim's status. The 'rejected' path re-bills the patient: the
+/// previously-covered amount is zeroed and the sale's balance re-synced, so a rejected
+/// claim no longer silently disappears from what the patient owes (audit finding E1).
 #[tauri::command]
 #[specta::specta]
-async fn merge_patients(app: AppHandle, keep_id: i64, dup_id: i64) -> Result<(), String> {
-    if keep_id == dup_id {
-        return Err("Cannot merge a patient into itself".into());
-    }
+async fn set_claim_status(
+    app: AppHandle,
+    claim_id: i64,
+    status: String,
+    claim_ref: Option<String>,
+) -> Result<(), String> {
     let pool = db_pool(&app).await?;
+    // BEGIN IMMEDIATE takes the write slot up front, so under WAL a contended
+    // writer waits on the busy timeout instead of failing a lock upgrade.
     let mut tx = pool
         .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|e| e.to_string())?;
+    // `?` here drops `tx` un-committed, which rolls back (sqlx `Drop`).
+    let out = set_claim_status_tx(&mut tx, claim_id, status, claim_ref).await?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+
+/// Transactional core of `merge_patients` — see that command for behaviour.
+async fn merge_patients_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    keep_id: i64,
+    dup_id: i64,
+) -> Result<(), String> {
+    if keep_id == dup_id {
+        return Err("Cannot merge a patient into itself".into());
+    }
 
     for id in [keep_id, dup_id] {
         let exists = sqlx::query("SELECT 1 AS x FROM patients WHERE id = ?1")
             .bind(id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await
             .map_err(|e| e.to_string())?;
         if exists.is_none() {
@@ -1078,7 +1176,7 @@ async fn merge_patients(app: AppHandle, keep_id: i64, dup_id: i64) -> Result<(),
         sqlx::query(sql)
             .bind(keep_id)
             .bind(dup_id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|e| e.to_string())?;
     }
@@ -1091,26 +1189,46 @@ async fn merge_patients(app: AppHandle, keep_id: i64, dup_id: i64) -> Result<(),
     )
     .bind(keep_id)
     .bind(dup_id)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(|e| e.to_string())?;
     sqlx::query("UPDATE patient_attribute_values SET patient_id = ?1 WHERE patient_id = ?2")
         .bind(keep_id)
         .bind(dup_id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|e| e.to_string())?;
 
     // The duplicate now has no references; remove it.
     sqlx::query("DELETE FROM patients WHERE id = ?1")
         .bind(dup_id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await
         .map_err(|e| e.to_string())?;
 
-    tx.commit().await.map_err(|e| e.to_string())?;
     Ok(())
 }
+
+/// Merges a duplicate patient into a surviving one: re-points all of the duplicate's
+/// records (sales, prescriptions, jobs, appointments, credit notes, activity, held
+/// carts, custom fields) onto `keep_id`, then deletes the now-empty duplicate. Custom
+/// fields that would collide (same attribute on both) keep the survivor's value.
+#[tauri::command]
+#[specta::specta]
+async fn merge_patients(app: AppHandle, keep_id: i64, dup_id: i64) -> Result<(), String> {
+    let pool = db_pool(&app).await?;
+    // BEGIN IMMEDIATE takes the write slot up front, so under WAL a contended
+    // writer waits on the busy timeout instead of failing a lock upgrade.
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
+    // `?` here drops `tx` un-committed, which rolls back (sqlx `Drop`).
+    let out = merge_patients_tx(&mut tx, keep_id, dup_id).await?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
 
 /// Atomic stock change (delivery or adjustment) for a product or a variant.
 /// Replaces the frontend BEGIN/COMMIT transactions in `src/db/stock.ts`, which
@@ -1133,17 +1251,13 @@ pub struct StockChangeInput {
     pub debt_amount: Option<i64>,
 }
 
-#[tauri::command]
-#[specta::specta]
-async fn record_stock_change(app: AppHandle, input: StockChangeInput) -> Result<(), String> {
+async fn record_stock_change_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    input: StockChangeInput,
+) -> Result<(), String> {
     if !matches!(input.movement_type.as_str(), "delivery" | "adjustment") {
         return Err("movement_type must be 'delivery' or 'adjustment'".into());
     }
-    let pool = db_pool(&app).await?;
-    let mut tx = pool
-        .begin_with("BEGIN IMMEDIATE")
-        .await
-        .map_err(|e| e.to_string())?;
     match input.variant_id {
         Some(variant_id) => {
             sqlx::query(
@@ -1151,14 +1265,14 @@ async fn record_stock_change(app: AppHandle, input: StockChangeInput) -> Result<
             )
             .bind(input.quantity_change)
             .bind(variant_id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|e| e.to_string())?;
             if let Some(price) = input.purchase_price {
                 sqlx::query("UPDATE product_variants SET purchase_price = ?1 WHERE id = ?2")
                     .bind(price)
                     .bind(variant_id)
-                    .execute(&mut *tx)
+                    .execute(&mut **tx)
                     .await
                     .map_err(|e| e.to_string())?;
             }
@@ -1172,14 +1286,14 @@ async fn record_stock_change(app: AppHandle, input: StockChangeInput) -> Result<
             )
             .bind(input.quantity_change)
             .bind(product_id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|e| e.to_string())?;
             if let Some(price) = input.purchase_price {
                 sqlx::query("UPDATE products SET purchase_price = ?1 WHERE id = ?2")
                     .bind(price)
                     .bind(product_id)
-                    .execute(&mut *tx)
+                    .execute(&mut **tx)
                     .await
                     .map_err(|e| e.to_string())?;
             }
@@ -1193,7 +1307,7 @@ async fn record_stock_change(app: AppHandle, input: StockChangeInput) -> Result<
     .bind(&input.movement_type)
     .bind(input.quantity_change)
     .bind(&input.note)
-    .execute(&mut *tx)
+    .execute(&mut **tx)
     .await
     .map_err(|e| e.to_string())?;
     if let (Some(supplier_id), Some(debt)) = (input.supplier_id, input.debt_amount) {
@@ -1212,12 +1326,68 @@ async fn record_stock_change(app: AppHandle, input: StockChangeInput) -> Result<
             .bind(debt)
             .bind(&input.note)
             .bind(what)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await
             .map_err(|e| e.to_string())?;
         }
     }
+    Ok(())
+}
+
+#[tauri::command]
+#[specta::specta]
+async fn record_stock_change(app: AppHandle, input: StockChangeInput) -> Result<(), String> {
+    let pool = db_pool(&app).await?;
+    // BEGIN IMMEDIATE takes the write slot up front, so under WAL a contended
+    // writer waits on the busy timeout instead of failing a lock upgrade.
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
+    // `?` here drops `tx` un-committed, which rolls back (sqlx `Drop`).
+    let out = record_stock_change_tx(&mut tx, input).await?;
     tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+
+/// Transactional core of `update_job_status` — see that command for behaviour.
+async fn update_job_status_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    job_id: i64,
+    status: String,
+    note: Option<String>,
+) -> Result<(), String> {
+    const JOB_STATUSES: [&str; 4] = ["ordered", "in_progress", "ready", "delivered"];
+    if !JOB_STATUSES.contains(&status.as_str()) {
+        return Err(format!("Unknown job status: {status}"));
+    }
+    // Delivered stamps delivered_at once (kept if re-confirmed); moving away from
+    // delivered clears it so a mistaken hand-off leaves no stale timestamp.
+    let updated = sqlx::query(
+        "UPDATE jobs
+            SET status = ?1,
+                delivered_at = CASE WHEN ?1 = 'delivered'
+                                    THEN COALESCE(delivered_at, datetime('now'))
+                                    ELSE NULL END,
+                updated_at = datetime('now')
+          WHERE id = ?2",
+    )
+    .bind(&status)
+    .bind(job_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    if updated.rows_affected() == 0 {
+        return Err("Job not found".into());
+    }
+    sqlx::query("INSERT INTO job_events (job_id, status, note) VALUES (?1, ?2, ?3)")
+        .bind(job_id)
+        .bind(&status)
+        .bind(&note)
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1233,42 +1403,57 @@ async fn update_job_status(
     status: String,
     note: Option<String>,
 ) -> Result<(), String> {
-    const JOB_STATUSES: [&str; 4] = ["ordered", "in_progress", "ready", "delivered"];
-    if !JOB_STATUSES.contains(&status.as_str()) {
-        return Err(format!("Unknown job status: {status}"));
-    }
     let pool = db_pool(&app).await?;
+    // BEGIN IMMEDIATE takes the write slot up front, so under WAL a contended
+    // writer waits on the busy timeout instead of failing a lock upgrade.
     let mut tx = pool
         .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|e| e.to_string())?;
-    // Delivered stamps delivered_at once (kept if re-confirmed); moving away from
-    // delivered clears it so a mistaken hand-off leaves no stale timestamp.
-    let updated = sqlx::query(
-        "UPDATE jobs
-            SET status = ?1,
-                delivered_at = CASE WHEN ?1 = 'delivered'
-                                    THEN COALESCE(delivered_at, datetime('now'))
-                                    ELSE NULL END,
-                updated_at = datetime('now')
-          WHERE id = ?2",
-    )
-    .bind(&status)
-    .bind(job_id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|e| e.to_string())?;
-    if updated.rows_affected() == 0 {
-        return Err("Job not found".into());
+    // `?` here drops `tx` un-committed, which rolls back (sqlx `Drop`).
+    let out = update_job_status_tx(&mut tx, job_id, status, note).await?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+
+/// Transactional core of `merge_color` — see that command for behaviour.
+async fn merge_color_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    from_id: i64,
+    into_id: i64,
+) -> Result<(), String> {
+    if from_id == into_id {
+        return Ok(());
     }
-    sqlx::query("INSERT INTO job_events (job_id, status, note) VALUES (?1, ?2, ?3)")
-        .bind(job_id)
-        .bind(&status)
-        .bind(&note)
-        .execute(&mut *tx)
+    sqlx::query("UPDATE products SET color_id = ?1 WHERE color_id = ?2")
+        .bind(into_id)
+        .bind(from_id)
+        .execute(&mut **tx)
         .await
         .map_err(|e| e.to_string())?;
-    tx.commit().await.map_err(|e| e.to_string())?;
+    sqlx::query(
+        "UPDATE product_variants
+            SET color_id = ?1, color = (SELECT name FROM colors WHERE id = ?1)
+          WHERE color_id = ?2",
+    )
+    .bind(into_id)
+    .bind(from_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    // Re-point aliases, ignoring any that would collide with the target's aliases.
+    sqlx::query("UPDATE OR IGNORE color_aliases SET color_id = ?1 WHERE color_id = ?2")
+        .bind(into_id)
+        .bind(from_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    sqlx::query("UPDATE colors SET archived = 1 WHERE id = ?1")
+        .bind(from_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -1279,42 +1464,161 @@ async fn update_job_status(
 #[tauri::command]
 #[specta::specta]
 async fn merge_color(app: AppHandle, from_id: i64, into_id: i64) -> Result<(), String> {
-    if from_id == into_id {
-        return Ok(());
+    let pool = db_pool(&app).await?;
+    // BEGIN IMMEDIATE takes the write slot up front, so under WAL a contended
+    // writer waits on the busy timeout instead of failing a lock upgrade.
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
+    // `?` here drops `tx` un-committed, which rolls back (sqlx `Drop`).
+    let out = merge_color_tx(&mut tx, from_id, into_id).await?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+
+// Operating expenses. Deliberately opex-only: stock bought from suppliers lives
+// in supplier_ledger and reaches the P&L as COGS when it sells, so recording it
+// here too would deduct the same money twice.
+#[derive(Debug, Deserialize, Type)]
+pub struct ExpenseInput {
+    /// Local calendar day, `YYYY-MM-DD`.
+    pub expense_date: String,
+    pub category: String,
+    /// Centimes; must not be negative.
+    pub amount: i64,
+    pub note: Option<String>,
+    pub supplier_id: Option<i64>,
+    pub method: Option<String>,
+}
+
+const EXPENSE_CATEGORIES: [&str; 7] = [
+    "rent",
+    "salaries",
+    "utilities",
+    "taxes",
+    "marketing",
+    "maintenance",
+    "other",
+];
+
+fn validate_expense(input: &ExpenseInput) -> Result<String, String> {
+    if !EXPENSE_CATEGORIES.contains(&input.category.as_str()) {
+        return Err(format!("Unknown expense category: {}", input.category));
     }
+    if input.amount < 0 {
+        return Err("An expense cannot be negative".into());
+    }
+    // Same rule as sales: store the local calendar day so the P&L and the
+    // expense list can never disagree about which period a cost falls in.
+    Ok(input
+        .expense_date
+        .get(..10)
+        .unwrap_or(input.expense_date.as_str())
+        .to_string())
+}
+
+/// Transactional core of `create_expense` — see that command for behaviour.
+async fn create_expense_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    input: ExpenseInput,
+) -> Result<i64, String> {
+    let date = validate_expense(&input)?;
+    Ok(sqlx::query(
+        "INSERT INTO expenses (expense_date, category, amount, note, supplier_id, method)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+    )
+    .bind(&date)
+    .bind(&input.category)
+    .bind(input.amount)
+    .bind(&input.note)
+    .bind(input.supplier_id)
+    .bind(&input.method)
+    .execute(&mut **tx)
+    .await
+    .map_err(|e| e.to_string())?
+    .last_insert_rowid())
+}
+
+/// Records an operating expense (rent, salaries, utilities, ...). Stock bought
+/// from suppliers is *not* an expense here — it reaches the P&L as cost of goods
+/// when the stock sells.
+#[tauri::command]
+#[specta::specta]
+async fn create_expense(app: AppHandle, input: ExpenseInput) -> Result<i64, String> {
     let pool = db_pool(&app).await?;
     let mut tx = pool
         .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|e| e.to_string())?;
-    sqlx::query("UPDATE products SET color_id = ?1 WHERE color_id = ?2")
-        .bind(into_id)
-        .bind(from_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| e.to_string())?;
-    sqlx::query(
-        "UPDATE product_variants
-            SET color_id = ?1, color = (SELECT name FROM colors WHERE id = ?1)
-          WHERE color_id = ?2",
+    let out = create_expense_tx(&mut tx, input).await?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(out)
+}
+
+/// Transactional core of `update_expense` — see that command for behaviour.
+async fn update_expense_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    id: i64,
+    input: ExpenseInput,
+) -> Result<(), String> {
+    let date = validate_expense(&input)?;
+    let r = sqlx::query(
+        "UPDATE expenses SET expense_date = ?1, category = ?2, amount = ?3,
+                             note = ?4, supplier_id = ?5, method = ?6
+          WHERE id = ?7",
     )
-    .bind(into_id)
-    .bind(from_id)
-    .execute(&mut *tx)
+    .bind(&date)
+    .bind(&input.category)
+    .bind(input.amount)
+    .bind(&input.note)
+    .bind(input.supplier_id)
+    .bind(&input.method)
+    .bind(id)
+    .execute(&mut **tx)
     .await
     .map_err(|e| e.to_string())?;
-    // Re-point aliases, ignoring any that would collide with the target's aliases.
-    sqlx::query("UPDATE OR IGNORE color_aliases SET color_id = ?1 WHERE color_id = ?2")
-        .bind(into_id)
-        .bind(from_id)
-        .execute(&mut *tx)
+    if r.rows_affected() == 0 {
+        return Err("Expense not found".into());
+    }
+    Ok(())
+}
+
+/// Edits a recorded expense.
+#[tauri::command]
+#[specta::specta]
+async fn update_expense(app: AppHandle, id: i64, input: ExpenseInput) -> Result<(), String> {
+    let pool = db_pool(&app).await?;
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
         .await
         .map_err(|e| e.to_string())?;
-    sqlx::query("UPDATE colors SET archived = 1 WHERE id = ?1")
-        .bind(from_id)
-        .execute(&mut *tx)
+    update_expense_tx(&mut tx, id, input).await?;
+    tx.commit().await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Transactional core of `delete_expense` — see that command for behaviour.
+async fn delete_expense_tx(tx: &mut Transaction<'_, Sqlite>, id: i64) -> Result<(), String> {
+    sqlx::query("DELETE FROM expenses WHERE id = ?1")
+        .bind(id)
+        .execute(&mut **tx)
         .await
         .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Removes a recorded expense.
+#[tauri::command]
+#[specta::specta]
+async fn delete_expense(app: AppHandle, id: i64) -> Result<(), String> {
+    let pool = db_pool(&app).await?;
+    let mut tx = pool
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .map_err(|e| e.to_string())?;
+    delete_expense_tx(&mut tx, id).await?;
     tx.commit().await.map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -1576,6 +1880,9 @@ fn specta_builder() -> Builder {
         record_stock_change,
         update_job_status,
         merge_color,
+        create_expense,
+        update_expense,
+        delete_expense,
         backup_database,
         restore_database,
         export_text_file,
@@ -1586,7 +1893,7 @@ fn specta_builder() -> Builder {
 
 /// SQLite migrations applied to `sqlite:app.db` on startup.
 /// Add migrations here, bumping `version` for each new one.
-fn migrations() -> Vec<Migration> {
+pub fn migrations() -> Vec<Migration> {
     vec![Migration {
         version: 1,
         description: "create_initial_schema",
@@ -2849,6 +3156,43 @@ fn migrations() -> Vec<Migration> {
                 ('manager_recovery_hash', '');
         "#,
         },
+        Migration {
+            version: 26,
+            description: "operating_expenses_and_sale_date_normalisation",
+            kind: MigrationKind::Up,
+            sql: r#"
+            -- Operating expenses (rent, salaries, utilities, ...) in centimes.
+            --
+            -- Scope is deliberately opex only: stock bought from suppliers stays
+            -- in supplier_ledger and reaches the P&L as COGS when it sells.
+            -- Recording a purchase here as well would deduct the same money
+            -- twice -- once as an expense and again as cost of goods.
+            CREATE TABLE expenses (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                expense_date TEXT NOT NULL DEFAULT (date('now','localtime')),
+                category     TEXT NOT NULL DEFAULT 'other'
+                              CHECK (category IN ('rent','salaries','utilities',
+                                                  'taxes','marketing','maintenance','other')),
+                amount       INTEGER NOT NULL DEFAULT 0 CHECK (amount >= 0),
+                note         TEXT,
+                supplier_id  INTEGER REFERENCES suppliers(id) ON DELETE SET NULL,
+                method       TEXT,
+                created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX idx_expenses_date ON expenses(expense_date);
+
+            -- sale_date is meant to hold the till's LOCAL calendar day, which is
+            -- what the POS writes and what every report filters on. The column
+            -- default was datetime('now') (UTC with a time component), so any row
+            -- created outside the POS -- seeds, imports, direct inserts -- landed
+            -- in UTC. At UTC+1 that reports a 00:30 sale on the previous day.
+            -- Normalise those legacy rows to their local calendar day; rows the
+            -- POS wrote are already 10 characters and are left untouched.
+            UPDATE sales
+               SET sale_date = date(sale_date, 'localtime')
+             WHERE length(sale_date) > 10;
+        "#,
+        },
     ]
 }
 
@@ -2944,36 +3288,4 @@ pub fn run() {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// Generates `src/lib/bindings.ts`. Run with `cargo test export_bindings`.
-    #[test]
-    fn export_bindings() {
-        super::export_bindings(&specta_builder());
-    }
-
-    #[test]
-    fn escpos_has_init_and_cut() {
-        let lines = vec![ReceiptLine {
-            text: "Opt DZ".into(),
-            align: "center".into(),
-            bold: true,
-            big: true,
-        }];
-        let bytes = build_escpos(&lines);
-        assert_eq!(&bytes[0..2], &[0x1B, 0x40], "starts with ESC @ init");
-        assert!(
-            bytes.windows(2).any(|w| w == [0x1B, 0x61]),
-            "contains an alignment command"
-        );
-        assert!(
-            bytes.windows(4).any(|w| w == [0x1D, 0x56, 0x42, 0x00]),
-            "ends with a partial cut"
-        );
-        assert!(
-            bytes.windows(6).any(|w| w == "Opt DZ".as_bytes()),
-            "contains the line text"
-        );
-    }
-}
+mod tests;

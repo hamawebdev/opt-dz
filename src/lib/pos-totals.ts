@@ -1,4 +1,7 @@
-import { computeTotals, type SaleItemInput } from "@/db/sales";
+import { computeTotals } from "@/lib/sale-math";
+// Type-only import: erased at runtime, so this file stays free of the Tauri
+// SQL plugin and can be unit-tested directly.
+import type { SaleItemInput } from "@/db/sales";
 import { taxConfig, extractTva, computeTimbre } from "@/lib/tax";
 import { toCentimes } from "@/lib/format";
 import type { CartLine } from "@/store/use-cart-store";

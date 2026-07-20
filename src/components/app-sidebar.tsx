@@ -14,6 +14,7 @@ import {
   Truck,
   Hourglass,
   CalendarDays,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -68,6 +69,7 @@ const manageItems: NavItem[] = [
     advanced: true,
   },
   { to: "/reports", labelKey: "nav.reports", icon: BarChart3 },
+  { to: "/expenses", labelKey: "nav.expenses", icon: Wallet, advanced: true },
   { to: "/settings", labelKey: "nav.settings", icon: Settings },
 ];
 

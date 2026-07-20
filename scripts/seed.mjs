@@ -1258,8 +1258,8 @@ for (let i = 0; i < 30; i++) {
   const createdAt = daysAgo(randInt(20, 400));
   const code = `P-${String(codeNext++).padStart(4, "0")}`;
   const id = lastId(
-    `INSERT INTO patients (code,full_name,phone,phone2,email,address,date_of_birth,national_id,default_payer_id,default_coverage_pct,insurance_policy_no,notes,store_credit,created_at,updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO patients (code,full_name,phone,phone2,email,address,date_of_birth,national_id,default_payer_id,default_coverage_pct,insurance_policy_no,notes,created_at,updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     code,
     name,
     phone(),
@@ -1279,7 +1279,6 @@ for (let i = 0; i < 30; i++) {
           "Porteur de lentilles depuis 2 ans.",
         ])
       : null,
-    0,
     ymdhms(createdAt),
     ymdhms(createdAt),
   );
@@ -1423,18 +1422,7 @@ function createSale(o) {
     : 0;
   const patientDue = total - covered + timbre;
   const cashPaid = Math.min(Math.max(o.initialPayment || 0, 0), patientDue);
-  let creditUsed = 0;
-  if (o.storeCreditUsed > 0) {
-    const avail = Number(
-      get1("SELECT store_credit FROM patients WHERE id=?", o.patientId)
-        ?.store_credit ?? 0,
-    );
-    creditUsed = Math.min(
-      Math.max(o.storeCreditUsed, 0),
-      Math.min(avail, patientDue - cashPaid),
-    );
-  }
-  const paid = cashPaid + creditUsed;
+  const paid = cashPaid;
   const balance = Math.max(patientDue - paid, 0);
   const status = paid <= 0 ? "unpaid" : paid >= patientDue ? "paid" : "partial";
   const invoiceNumber = `${INV_PREFIX}${String(invoiceNext).padStart(INV_PAD, "0")}`;
@@ -1540,19 +1528,6 @@ function createSale(o) {
       o.method,
       when,
     );
-  if (creditUsed > 0) {
-    run(
-      "INSERT INTO payments (sale_id,amount,method,note,paid_at) VALUES (?,?, 'store_credit', 'Store credit redeemed', ?)",
-      saleId,
-      creditUsed,
-      when,
-    );
-    run(
-      "UPDATE patients SET store_credit = store_credit - ? WHERE id = ?",
-      creditUsed,
-      o.patientId,
-    );
-  }
   logAct(o.patientId, "sale", "Vente enregistrée", saleId, o.date);
   createdSales.push({
     saleId,
@@ -1735,16 +1710,18 @@ for (const c of createdSales) {
   if (!c.jobId) continue;
   jobsN++;
   const ageDays = Math.round((NOW.getTime() - c.date.getTime()) / DAY);
+  // Migration v24 collapsed the lab pipeline to four stages:
+  // ordered -> in_progress -> ready -> delivered.
   let status;
-  if (ageDays > 25) status = pick(["collected", "collected", "ready"]);
-  else if (ageDays > 12) status = pick(["ready", "edging", "collected"]);
-  else if (ageDays > 5) status = pick(["edging", "at_lab"]);
-  else status = pick(["ordered", "at_lab"]);
+  if (ageDays > 25) status = pick(["delivered", "delivered", "ready"]);
+  else if (ageDays > 12) status = pick(["ready", "in_progress", "delivered"]);
+  else if (ageDays > 5) status = pick(["in_progress", "in_progress"]);
+  else status = pick(["ordered", "in_progress"]);
   const expected = new Date(c.date.getTime() + randInt(5, 12) * DAY);
   const updatedAt = new Date(
     Math.min(NOW.getTime(), c.date.getTime() + randInt(2, 18) * DAY),
   );
-  const delivered = status === "collected" ? ymdhms(updatedAt) : null;
+  const delivered = status === "delivered" ? ymdhms(updatedAt) : null;
   run(
     "UPDATE jobs SET lab=?, expected_ready=?, notes=?, status=?, delivered_at=?, updated_at=? WHERE id=?",
     pick(LABS),
@@ -1823,8 +1800,10 @@ for (const c of ordered) {
     c.saleId,
   );
   if (!item) continue;
-  const method = refundsDone < 1 ? "refund" : "store_credit";
-  if (method === "store_credit" && creditDone) continue;
+  // Migration v17 removed store credit; an avoir is either refunded in cash
+  // or applied against the invoice balance.
+  const method = refundsDone < 1 ? "refund" : "balance";
+  if (method === "balance" && creditDone) continue;
   const perUnit = Math.floor(Number(item.line_total) / Number(item.quantity));
   const cnDate = new Date(
     Math.min(NOW.getTime(), c.date.getTime() + randInt(3, 20) * DAY),
@@ -1837,7 +1816,7 @@ for (const c of ordered) {
     method,
     method === "refund"
       ? "Monture ne convenait pas — remboursement."
-      : "Échange — avoir client.",
+      : "Échange — avoir déduit du solde.",
     ymdhms(cnDate),
   );
   run(
@@ -1861,50 +1840,27 @@ for (const c of ordered) {
     `Return — sale #${c.saleId}`,
     ymdhms(cnDate),
   );
-  if (method === "store_credit") {
+  if (method === "balance") {
+    // A balance avoir reduces what is still owed on the original invoice.
     run(
-      "UPDATE patients SET store_credit = store_credit + ? WHERE id = ?",
+      "UPDATE sales SET balance = MAX(0, balance - ?) WHERE id = ?",
       perUnit,
-      c.patientId,
+      c.saleId,
+    );
+    run(
+      `UPDATE sales SET status = CASE WHEN balance <= 0 THEN 'paid'
+                                      WHEN amount_paid <= 0 THEN 'unpaid'
+                                      ELSE 'partial' END
+        WHERE id = ? AND status <> 'void'`,
+      c.saleId,
     );
     creditDone = true;
     creditPatientId = c.patientId;
   } else refundsDone++;
 }
 
-// redeem some store credit on a later small accessory sale
-if (creditPatientId != null) {
-  const avail = Number(
-    get1("SELECT store_credit FROM patients WHERE id=?", creditPatientId)
-      ?.store_credit ?? 0,
-  );
-  const acc = accessories.find((a) => a.avail > 0);
-  if (avail > 0 && acc && reserve(acc, 1)) {
-    createSale({
-      patientId: creditPatientId,
-      prescriptionId: null,
-      items: [
-        {
-          product_id: acc.product_id,
-          variant_id: acc.variant_id,
-          description: acc.description,
-          unit_price: acc.unit_price,
-          quantity: 1,
-          item_discount: 0,
-        },
-      ],
-      date: daysAgo(1),
-      method: "cash",
-      initialPayment: 0,
-      payerId: null,
-      coverage: 0,
-      storeCreditUsed: Math.min(avail, acc.unit_price),
-      note: "Réglé en partie avec l'avoir client.",
-    });
-  }
-}
 console.log(
-  `• returns: ${refundsDone} refund(s), ${creditDone ? 1 : 0} store-credit`,
+  `• returns: ${refundsDone} refund(s), ${creditDone ? 1 : 0} balance avoir`,
 );
 
 // ── finalize counters ───────────────────────────────────────────────────────
@@ -1961,13 +1917,18 @@ console.log(
 );
 console.log(
   "  sales w/ wrong balance:",
+  // Mirrors sync_sale_balance: goods + timbre, less insurer coverage, less any
+  // 'balance' avoir applied to the invoice, less what has been paid.
   sum(
-    "SELECT COUNT(*) AS v FROM sales s WHERE s.balance <> MAX(s.total + s.timbre_amount - COALESCE((SELECT covered_amount FROM claims WHERE sale_id=s.id),0) - s.amount_paid, 0)",
+    `SELECT COUNT(*) AS v FROM sales s
+      WHERE s.status <> 'void'
+        AND s.balance <> MAX(
+              s.total + s.timbre_amount
+              - COALESCE((SELECT covered_amount FROM claims WHERE sale_id=s.id),0)
+              - COALESCE((SELECT SUM(total) FROM credit_notes
+                           WHERE sale_id=s.id AND method='balance'),0)
+              - s.amount_paid, 0)`,
   ),
-);
-console.log(
-  "  patients w/ store credit:",
-  sum("SELECT COUNT(*) AS v FROM patients WHERE store_credit > 0"),
 );
 console.log(
   "  total outstanding (DA):",

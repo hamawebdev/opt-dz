@@ -32,6 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { CollectedChart } from "@/components/collected-chart";
+import { ProfitLossCard } from "@/components/profit-loss-card";
 import { ErrorState } from "@/components/error-state";
 import { HelpHint } from "@/components/help-hint";
 import { StatCard } from "@/components/stat-card";
@@ -239,6 +240,8 @@ export default function ReportsPage() {
           </div>
         )}
       </section>
+
+      <ProfitLossCard from={range.from} to={range.to} />
 
       <Card>
         <CardHeader>

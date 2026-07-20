@@ -20,8 +20,17 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 debug = 0
 strip = "debuginfo"
 
+# Dumps the app's migrations as JSON so the TypeScript integration suite builds
+# its schema from the same source the app runs. See src/bin/dump_migrations.rs.
+[[bin]]
+name = "dump-migrations"
+path = "src/bin/dump_migrations.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [dependencies]
 tauri = { version = "2", features = [] }

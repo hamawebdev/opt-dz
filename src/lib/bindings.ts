@@ -140,6 +140,41 @@ async mergeColor(fromId: number, intoId: number) : Promise<Result<null, string>>
 }
 },
 /**
+ * Records an operating expense (rent, salaries, utilities, ...). Stock bought
+ * from suppliers is *not* an expense here — it reaches the P&L as cost of goods
+ * when the stock sells.
+ */
+async createExpense(input: ExpenseInput) : Promise<Result<number, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_expense", { input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Edits a recorded expense.
+ */
+async updateExpense(id: number, input: ExpenseInput) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_expense", { id, input }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Removes a recorded expense.
+ */
+async deleteExpense(id: number) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_expense", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Writes a consistent snapshot of the live database to `dest_path` (a full path
  * with filename chosen by the frontend) via `VACUUM INTO` — SQLite's online
  * backup: correct even while other connections keep writing (no file copy of a
@@ -226,6 +261,15 @@ export type CreateSaleInput = {
  * `None` for a walk-in / quick sale with no registered customer.
  */
 patient_id: number | null; prescription_id: number | null; sale_date: string; discount_type: string; discount_value: number; notes: string | null; items: SaleItemInput[]; initial_payment: number | null; payment_method: string | null; payer_id: number | null; coverage_pct: number | null }
+export type ExpenseInput = { 
+/**
+ * Local calendar day, `YYYY-MM-DD`.
+ */
+expense_date: string; category: string; 
+/**
+ * Centimes; must not be negative.
+ */
+amount: number; note: string | null; supplier_id: number | null; method: string | null }
 /**
  * A barcode label to print on the thermal/label printer.
  */

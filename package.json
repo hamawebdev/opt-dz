@@ -8,6 +8,12 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "test": "npm run test:rust && npm run test:unit && npm run test:int",
+    "test:rust": "TZ=Africa/Algiers cargo test --manifest-path src-tauri/Cargo.toml --lib",
+    "test:unit": "vitest run --project unit",
+    "test:int": "TZ=Africa/Algiers vitest run --project integration",
+    "test:watch": "TZ=Africa/Algiers vitest --project unit",
+    "bindings": "cargo test --manifest-path src-tauri/Cargo.toml --lib -- --ignored export_bindings",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
@@ -79,6 +85,7 @@
     "tailwindcss": "^4.3.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.60.1",
-    "vite": "^7.0.4"
+    "vite": "^7.0.4",
+    "vitest": "^3.2.7"
   }
 }

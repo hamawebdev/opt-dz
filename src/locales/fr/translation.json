@@ -56,7 +56,9 @@
     "fewerDetails": "Moins de détails",
     "previous": "Précédent",
     "next": "Suivant",
-    "details": "Détails"
+    "details": "Détails",
+    "note": "Note",
+    "amount": "Montant"
   },
   "errors": {
     "loadTitle": "Impossible de charger ces données",
@@ -87,7 +89,8 @@
     "notifications": "Notifications",
     "daily": "Quotidien",
     "manage": "Gérer",
-    "pos": "Vente rapide"
+    "pos": "Vente rapide",
+    "expenses": "Charges"
   },
   "quick": {
     "title": "Que voulez-vous faire ?",
@@ -708,7 +711,27 @@
     "noOutstanding": "Aucun solde impayé.",
     "invoices": "Factures",
     "owed": "Dû",
-    "totalOutstanding": "Total impayé"
+    "totalOutstanding": "Total impayé",
+    "pnlTitle": "Compte de résultat",
+    "pnlSubtitle": "Ce que le magasin a gagné après les coûts, pour la période ci-dessus.",
+    "pnlUnavailable": "Le bénéfice n'a pas pu être calculé pour cette période.",
+    "pnlRevenueTtc": "Ventes (telles que facturées)",
+    "pnlTva": "TVA (revient à l'État)",
+    "pnlTimbre": "Droit de timbre (revient à l'État)",
+    "pnlTimbreHint": "Perçu sur les ventes en espèces et reversé à l'État : ce n'est pas votre revenu.",
+    "pnlRevenueHt": "Votre chiffre d'affaires",
+    "pnlRevenueHtHint": "Ventes hors TVA, après déduction des retours.",
+    "pnlCogs": "Coût des marchandises vendues",
+    "pnlCogsHint": "Ce que vous aviez payé pour les articles vendus.",
+    "pnlGrossMargin": "Marge brute",
+    "pnlExpenses": "Charges",
+    "pnlNetProfit": "Bénéfice net",
+    "pnlContextTitle": "Pour information — non compris dans le bénéfice ci-dessus",
+    "pnlStockPurchased": "Stock acheté sur la période",
+    "pnlStockPurchasedHint": "Acheter du stock n'est pas une perte : cela devient un coût seulement à la vente.",
+    "pnlCollected": "Encaissé sur la période",
+    "pnlCollectedHint": "Argent réellement encaissé. Diffère des ventes à cause du crédit et du timbre.",
+    "pnlNoExpenses": "Aucune charge enregistrée pour cette période."
   },
   "settings": {
     "shopInformation": "Informations du magasin",
@@ -1168,5 +1191,32 @@
     "conflictTitle": "Cet horaire est déjà pris",
     "conflictBody": "{{optometrist}} a déjà {{other}} à {{otherTime}}. Déplacer quand même {{patient}} à {{time}} ?",
     "conflictProceed": "Déplacer quand même"
+  },
+  "expenses": {
+    "title": "Charges",
+    "subtitle": "Frais de fonctionnement : loyer, salaires, factures.",
+    "add": "Ajouter une charge",
+    "addTitle": "Nouvelle charge",
+    "editTitle": "Modifier la charge",
+    "periodTotal": "Total de la période",
+    "categoryLabel": "Type",
+    "categoryHint": "À quoi l'argent a servi. Cela regroupe le rapport de bénéfice.",
+    "allCategories": "Tous les types",
+    "none": "Aucune charge sur cette période.",
+    "created": "Charge enregistrée",
+    "updated": "Charge modifiée",
+    "deleted": "Charge supprimée",
+    "saveFailed": "Impossible d'enregistrer la charge",
+    "deleteFailed": "Impossible de supprimer la charge",
+    "stockNotice": "N'inscrivez pas ici le stock acheté aux fournisseurs — enregistrez-le sur la page Fournisseurs. Il est compté comme coût lors de la vente.",
+    "category": {
+      "rent": "Loyer",
+      "salaries": "Salaires",
+      "utilities": "Électricité, eau, téléphone",
+      "taxes": "Impôts et taxes",
+      "marketing": "Publicité",
+      "maintenance": "Réparations",
+      "other": "Autre"
+    }
   }
 }

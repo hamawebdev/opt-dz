@@ -56,7 +56,9 @@
     "fewerDetails": "Fewer details",
     "previous": "Previous",
     "next": "Next",
-    "details": "Details"
+    "details": "Details",
+    "note": "Note",
+    "amount": "Amount"
   },
   "errors": {
     "loadTitle": "Couldn't load this data",
@@ -87,7 +89,8 @@
     "notifications": "Notifications",
     "daily": "Daily",
     "manage": "Manage",
-    "pos": "Quick Sale"
+    "pos": "Quick Sale",
+    "expenses": "Expenses"
   },
   "quick": {
     "title": "What do you want to do?",
@@ -708,7 +711,27 @@
     "noOutstanding": "No outstanding balances.",
     "invoices": "Invoices",
     "owed": "Owed",
-    "totalOutstanding": "Total outstanding"
+    "totalOutstanding": "Total outstanding",
+    "pnlTitle": "Profit and loss",
+    "pnlSubtitle": "What the shop earned after costs, for the period above.",
+    "pnlUnavailable": "Profit could not be calculated for this period.",
+    "pnlRevenueTtc": "Sales (as invoiced)",
+    "pnlTva": "VAT (belongs to the state)",
+    "pnlTimbre": "Stamp duty (belongs to the state)",
+    "pnlTimbreHint": "Charged on cash sales and paid over to the state, so it is not part of your income.",
+    "pnlRevenueHt": "Your sales income",
+    "pnlRevenueHtHint": "Sales after taking out VAT, and after subtracting returns.",
+    "pnlCogs": "Cost of goods sold",
+    "pnlCogsHint": "What you originally paid for the items that were sold.",
+    "pnlGrossMargin": "Gross profit",
+    "pnlExpenses": "Expenses",
+    "pnlNetProfit": "Net profit",
+    "pnlContextTitle": "For information — not part of the profit above",
+    "pnlStockPurchased": "Stock bought this period",
+    "pnlStockPurchasedHint": "Buying stock is not a loss: it becomes a cost only when the item is sold.",
+    "pnlCollected": "Cash received this period",
+    "pnlCollectedHint": "Money actually taken in. It differs from sales because of credit and stamp duty.",
+    "pnlNoExpenses": "No expenses recorded for this period."
   },
   "settings": {
     "shopInformation": "Shop information",
@@ -1168,5 +1191,32 @@
     "conflictTitle": "That time is already taken",
     "conflictBody": "{{optometrist}} already has {{other}} at {{otherTime}}. Move {{patient}} to {{time}} anyway?",
     "conflictProceed": "Move it anyway"
+  },
+  "expenses": {
+    "title": "Expenses",
+    "subtitle": "Running costs of the shop: rent, wages, bills.",
+    "add": "Add expense",
+    "addTitle": "New expense",
+    "editTitle": "Edit expense",
+    "periodTotal": "Total for this period",
+    "categoryLabel": "Type",
+    "categoryHint": "What the money was spent on. This groups the profit report.",
+    "allCategories": "All types",
+    "none": "No expenses in this period.",
+    "created": "Expense saved",
+    "updated": "Expense updated",
+    "deleted": "Expense deleted",
+    "saveFailed": "Could not save the expense",
+    "deleteFailed": "Could not delete the expense",
+    "stockNotice": "Do not enter stock bought from suppliers here — record it on the Suppliers page. It is counted as a cost when the stock is sold.",
+    "category": {
+      "rent": "Rent",
+      "salaries": "Wages",
+      "utilities": "Electricity, water, phone",
+      "taxes": "Taxes and fees",
+      "marketing": "Advertising",
+      "maintenance": "Repairs",
+      "other": "Other"
+    }
   }
 }

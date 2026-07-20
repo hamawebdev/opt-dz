@@ -18,6 +18,7 @@ const SEGMENT_TO_NAV_KEY: Record<string, string> = {
   "": "nav.dashboard",
   patients: "nav.patients",
   inventory: "nav.inventory",
+  expenses: "nav.expenses",
   tracking: "nav.tracking",
   suppliers: "nav.suppliers",
   notifications: "nav.notifications",

@@ -36,6 +36,7 @@ import AppointmentsPage from "@/pages/appointments";
 import InsurancePage from "@/pages/insurance";
 import SuppliersPage from "@/pages/suppliers";
 import ReportsPage from "@/pages/reports";
+import ExpensesPage from "@/pages/expenses";
 import SettingsPage from "@/pages/settings";
 import AttributeTemplatesPage from "@/pages/attribute-templates";
 import ColorsManagerPage from "@/pages/colors-manager";
@@ -130,6 +131,7 @@ const router = createHashRouter([
           { path: "inventory/new", element: <ProductFormPage /> },
           { path: "inventory/:id/edit", element: <ProductFormPage /> },
           { path: "reports", element: <ReportsPage /> },
+          { path: "expenses", element: <ExpensesPage /> },
           { path: "settings", element: <SettingsPage /> },
           { path: "settings/attributes", element: <AttributeTemplatesPage /> },
           { path: "settings/colors", element: <ColorsManagerPage /> },
