@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "Opt DZ"
 authors = ["you"]
 edition = "2021"
+# With a second binary target (dump-migrations) present, Cargo/Tauri can't infer
+# which binary is the app; `default-run` names the one `tauri build` bundles.
+default-run = "opt-dz"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
